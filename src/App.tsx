@@ -628,6 +628,163 @@ function LoanForm() {
     </form>
   );
 }
+function BackupSection() {
+  const [message, setMessage] = useState("");
+
+  async function exportBackup() {
+    const creditCardExpenses =
+      await db.creditCardExpenses.toArray();
+
+    const loans = await db.loans.toArray();
+
+    const backup = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      creditCardExpenses,
+      loans,
+    };
+
+    const blob = new Blob(
+      [JSON.stringify(backup, null, 2)],
+      {
+        type: "application/json",
+      }
+    );
+
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+
+    const date = new Date()
+      .toISOString()
+      .slice(0, 10);
+
+    link.href = url;
+    link.download = `finanzas-backup-${date}.json`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(url);
+
+    setMessage("Respaldo exportado correctamente ✓");
+  }
+
+  async function importBackup(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    setMessage("");
+
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+
+      if (
+        !backup ||
+        !Array.isArray(backup.creditCardExpenses) ||
+        !Array.isArray(backup.loans)
+      ) {
+        setMessage(
+          "El archivo seleccionado no parece ser un respaldo válido."
+        );
+
+        event.target.value = "";
+        return;
+      }
+
+      const confirmed = window.confirm(
+        "Este respaldo reemplazará las tarjetas y créditos guardados actualmente en este dispositivo. ¿Querés continuar?"
+      );
+
+      if (!confirmed) {
+        event.target.value = "";
+        return;
+      }
+
+      await db.transaction(
+        "rw",
+        db.creditCardExpenses,
+        db.loans,
+        async () => {
+          await db.creditCardExpenses.clear();
+          await db.loans.clear();
+
+          if (backup.creditCardExpenses.length > 0) {
+            await db.creditCardExpenses.bulkPut(
+              backup.creditCardExpenses
+            );
+          }
+
+          if (backup.loans.length > 0) {
+            await db.loans.bulkPut(backup.loans);
+          }
+        }
+      );
+
+      setMessage("Respaldo restaurado correctamente ✓");
+    } catch (error) {
+      console.error(error);
+
+      setMessage(
+        "No se pudo importar el respaldo. Revisá que sea el archivo correcto."
+      );
+    }
+
+    event.target.value = "";
+  }
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div>
+        <h2 className="font-bold text-slate-900">
+          Respaldo de datos
+        </h2>
+
+        <p className="mt-1 text-sm text-slate-500">
+          Guardá una copia de tus tarjetas y créditos para
+          poder recuperarlos si cambiás de dispositivo.
+        </p>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={exportBackup}
+          className="rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+        >
+          Exportar respaldo
+        </button>
+
+        <label className="cursor-pointer rounded-xl border border-slate-200 px-3 py-3 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          Importar respaldo
+
+          <input
+            type="file"
+            accept=".json,application/json"
+            onChange={importBackup}
+            className="hidden"
+          />
+        </label>
+      </div>
+
+      {message && (
+        <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
+          {message}
+        </p>
+      )}
+
+      <p className="mt-3 text-xs text-slate-400">
+        El respaldo contiene solamente los datos financieros
+        guardados por esta app.
+      </p>
+    </section>
+  );
+}
 
 function App() {
   const [selectedMonth, setSelectedMonth] =
@@ -943,9 +1100,10 @@ const projectionRows = projectionMonths.map(
                 className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
               />
             </div>
+            <BackupSection />
           </section>
         )}
-
+        
         {activeView === "projection" && (
   <section className="space-y-3">
     <div className="flex items-end justify-between gap-3">
