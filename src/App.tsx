@@ -53,11 +53,15 @@ type CreditCardExpense = {
   bank: string;
   cardName: string;
   category: string;
+
+  paymentType?: "installment" | "recurring";
+
   totalAmount: number;
   installments: number;
   currentInstallment: number;
   currentInstallmentMonth: string;
   monthlyAmount: number;
+  
   status: "active" | "finished";
 };
 
@@ -205,7 +209,15 @@ function getInstallmentForMonth(
     getMonthIndex(targetMonth) -
     getMonthIndex(expense.currentInstallmentMonth);
 
-  const installmentNumber = expense.currentInstallment + difference;
+  // Suscripción / gasto recurrente:
+  // aparece todos los meses desde su mes de inicio.
+  if (expense.paymentType === "recurring") {
+    return difference >= 0 ? 1 : null;
+  }
+
+  // Compra normal en cuotas.
+  const installmentNumber =
+    expense.currentInstallment + difference;
 
   if (installmentNumber < 1) return null;
   if (installmentNumber > expense.installments) return null;
@@ -239,29 +251,47 @@ function CardForm() {
   const [date, setDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
+
   const [description, setDescription] = useState("");
   const [bank, setBank] = useState("");
   const [cardName, setCardName] = useState("");
   const [category, setCategory] = useState("");
+
+  const [paymentType, setPaymentType] =
+    useState<"installment" | "recurring">("installment");
+
   const [totalAmount, setTotalAmount] = useState("");
   const [installments, setInstallments] = useState("1");
-  const [currentInstallment, setCurrentInstallment] = useState("1");
+  const [currentInstallment, setCurrentInstallment] =
+    useState("1");
+
   const [currentInstallmentMonth, setCurrentInstallmentMonth] =
     useState(currentMonth);
 
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
-  const [celebrationMessage, setCelebrationMessage] = useState("");
+  const [celebrationMessage, setCelebrationMessage] =
+    useState("");
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
     setSuccessMessage("");
     setCelebrationMessage("");
 
-    const numericTotal = Number(totalAmount);
-    const numericInstallments = Number(installments);
-    const numericCurrentInstallment = Number(currentInstallment);
+    const numericAmount = Number(totalAmount);
+
+    const numericInstallments =
+      paymentType === "recurring"
+        ? 1
+        : Number(installments);
+
+    const numericCurrentInstallment =
+      paymentType === "recurring"
+        ? 1
+        : Number(currentInstallment);
 
     const savedDescription = description.trim();
 
@@ -269,16 +299,32 @@ function CardForm() {
       !savedDescription ||
       !bank.trim() ||
       !cardName.trim() ||
-      numericTotal <= 0 ||
-      numericInstallments <= 0 ||
-      numericCurrentInstallment <= 0 ||
-      numericCurrentInstallment > numericInstallments
+      numericAmount <= 0
+    ) {
+      return;
+    }
+
+    if (
+      paymentType === "installment" &&
+      (
+        numericInstallments <= 0 ||
+        numericCurrentInstallment <= 0 ||
+        numericCurrentInstallment >
+          numericInstallments
+      )
     ) {
       return;
     }
 
     const isLastInstallment =
-      numericCurrentInstallment === numericInstallments;
+      paymentType === "installment" &&
+      numericCurrentInstallment ===
+        numericInstallments;
+
+    const monthlyAmount =
+      paymentType === "recurring"
+        ? numericAmount
+        : numericAmount / numericInstallments;
 
     setIsSaving(true);
 
@@ -289,16 +335,29 @@ function CardForm() {
         description: savedDescription,
         bank: bank.trim(),
         cardName: cardName.trim(),
-        category: category.trim() || "Sin categoría",
-        totalAmount: numericTotal,
+        category:
+          category.trim() || "Sin categoría",
+
+        paymentType,
+
+        totalAmount: numericAmount,
         installments: numericInstallments,
-        currentInstallment: numericCurrentInstallment,
+        currentInstallment:
+          numericCurrentInstallment,
         currentInstallmentMonth,
-        monthlyAmount: numericTotal / numericInstallments,
+        monthlyAmount,
         status: "active",
       });
 
-      setSuccessMessage("Compra guardada correctamente ✓");
+      if (paymentType === "recurring") {
+        setSuccessMessage(
+          "Gasto recurrente guardado correctamente ✓"
+        );
+      } else {
+        setSuccessMessage(
+          "Compra guardada correctamente ✓"
+        );
+      }
 
       if (isLastInstallment) {
         setCelebrationMessage(
@@ -309,6 +368,8 @@ function CardForm() {
       setDescription("");
       setCategory("");
       setTotalAmount("");
+
+      setPaymentType("installment");
       setInstallments("1");
       setCurrentInstallment("1");
       setCurrentInstallmentMonth(currentMonth);
@@ -331,10 +392,45 @@ function CardForm() {
       </h2>
 
       <p className="mt-1 text-sm text-slate-500">
-        También podés cargar compras que ya tienen cuotas pagadas.
+        Registrá compras en cuotas o gastos recurrentes.
       </p>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
+
+        {/* TIPO DE GASTO */}
+        <label className="space-y-1 sm:col-span-2">
+          <span className="text-sm font-medium text-slate-600">
+            Tipo de gasto
+          </span>
+
+          <select
+            value={paymentType}
+            onChange={(event) => {
+              const newType =
+                event.target.value as
+                  | "installment"
+                  | "recurring";
+
+              setPaymentType(newType);
+
+              if (newType === "recurring") {
+                setInstallments("1");
+                setCurrentInstallment("1");
+              }
+            }}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 outline-none focus:border-slate-500"
+          >
+            <option value="installment">
+              Compra en cuotas
+            </option>
+
+            <option value="recurring">
+              Recurrente / Suscripción
+            </option>
+          </select>
+        </label>
+
+        {/* DESCRIPCIÓN */}
         <label className="space-y-1">
           <span className="text-sm font-medium text-slate-600">
             Descripción
@@ -342,25 +438,37 @@ function CardForm() {
 
           <input
             value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Ej. Zapatillas"
+            onChange={(event) =>
+              setDescription(event.target.value)
+            }
+            placeholder={
+              paymentType === "recurring"
+                ? "Ej. Netflix"
+                : "Ej. Zapatillas"
+            }
             className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
           />
         </label>
 
+        {/* FECHA */}
         <label className="space-y-1">
           <span className="text-sm font-medium text-slate-600">
-            Fecha de compra
+            {paymentType === "recurring"
+              ? "Fecha de inicio"
+              : "Fecha de compra"}
           </span>
 
           <input
             type="date"
             value={date}
-            onChange={(event) => setDate(event.target.value)}
+            onChange={(event) =>
+              setDate(event.target.value)
+            }
             className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
           />
         </label>
 
+        {/* BANCO */}
         <label className="space-y-1">
           <span className="text-sm font-medium text-slate-600">
             Banco
@@ -368,12 +476,15 @@ function CardForm() {
 
           <input
             value={bank}
-            onChange={(event) => setBank(event.target.value)}
+            onChange={(event) =>
+              setBank(event.target.value)
+            }
             placeholder="Ej. Galicia"
             className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
           />
         </label>
 
+        {/* TARJETA */}
         <label className="space-y-1">
           <span className="text-sm font-medium text-slate-600">
             Tarjeta
@@ -381,12 +492,15 @@ function CardForm() {
 
           <input
             value={cardName}
-            onChange={(event) => setCardName(event.target.value)}
+            onChange={(event) =>
+              setCardName(event.target.value)
+            }
             placeholder="Ej. Visa"
             className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
           />
         </label>
 
+        {/* CATEGORÍA */}
         <label className="space-y-1">
           <span className="text-sm font-medium text-slate-600">
             Categoría
@@ -394,79 +508,120 @@ function CardForm() {
 
           <input
             value={category}
-            onChange={(event) => setCategory(event.target.value)}
-            placeholder="Ropa, hogar, tecnología..."
+            onChange={(event) =>
+              setCategory(event.target.value)
+            }
+            placeholder="Ej. Suscripciones"
             className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
           />
         </label>
 
+        {/* MONTO */}
         <label className="space-y-1">
           <span className="text-sm font-medium text-slate-600">
-            Monto total
+            {paymentType === "recurring"
+              ? "Monto mensual"
+              : "Monto total"}
           </span>
 
           <input
             type="number"
             min="0"
             value={totalAmount}
-            onChange={(event) => setTotalAmount(event.target.value)}
-            placeholder="120000"
-            className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
-          />
-        </label>
-
-        <label className="space-y-1">
-          <span className="text-sm font-medium text-slate-600">
-            Cantidad de cuotas
-          </span>
-
-          <input
-            type="number"
-            min="1"
-            value={installments}
-            onChange={(event) => setInstallments(event.target.value)}
-            className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
-          />
-        </label>
-
-        <label className="space-y-1">
-          <span className="text-sm font-medium text-slate-600">
-            Número de cuota actual
-          </span>
-
-          <input
-            type="number"
-            min="1"
-            value={currentInstallment}
             onChange={(event) =>
-              setCurrentInstallment(event.target.value)
+              setTotalAmount(event.target.value)
+            }
+            placeholder={
+              paymentType === "recurring"
+                ? "15000"
+                : "120000"
             }
             className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
           />
         </label>
 
+        {/* SOLO COMPRAS EN CUOTAS */}
+        {paymentType === "installment" && (
+          <>
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-600">
+                Cantidad de cuotas
+              </span>
+
+              <input
+                type="number"
+                min="1"
+                value={installments}
+                onChange={(event) =>
+                  setInstallments(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-600">
+                Número de cuota actual
+              </span>
+
+              <input
+                type="number"
+                min="1"
+                value={currentInstallment}
+                onChange={(event) =>
+                  setCurrentInstallment(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
+              />
+            </label>
+          </>
+        )}
+
+        {/* MES DE REFERENCIA */}
         <label className="space-y-1 sm:col-span-2">
           <span className="text-sm font-medium text-slate-600">
-            Mes de esa cuota
+            {paymentType === "recurring"
+              ? "Repetir mensualmente desde"
+              : "Mes de esa cuota"}
           </span>
 
           <input
             type="month"
             value={currentInstallmentMonth}
             onChange={(event) =>
-              setCurrentInstallmentMonth(event.target.value)
+              setCurrentInstallmentMonth(
+                event.target.value
+              )
             }
             className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500 sm:max-w-sm"
           />
         </label>
       </div>
 
+      {/* INFORMACIÓN RECURRENTE */}
+      {paymentType === "recurring" && (
+        <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3">
+          <p className="text-sm text-slate-600">
+            Este monto se repetirá todos los meses
+            hasta que marques el gasto como finalizado.
+          </p>
+        </div>
+      )}
+
       <button
         type="submit"
         disabled={isSaving}
         className="mt-5 w-full rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white disabled:opacity-60 sm:w-auto"
       >
-        {isSaving ? "Guardando..." : "Guardar compra"}
+        {isSaving
+          ? "Guardando..."
+          : paymentType === "recurring"
+            ? "Guardar recurrente"
+            : "Guardar compra"}
       </button>
 
       {successMessage && (
@@ -477,7 +632,10 @@ function CardForm() {
 
       {celebrationMessage && (
         <div className="mt-2 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-3 text-amber-800">
-          <PartyPopper size={20} className="shrink-0" />
+          <PartyPopper
+            size={20}
+            className="shrink-0"
+          />
 
           <p className="text-sm font-semibold">
             {celebrationMessage}
@@ -1030,6 +1188,12 @@ function App() {
   const [selectedExpenseId, setSelectedExpenseId] =
   useState<string | null>(null);
 
+  const [editingExpenseId, setEditingExpenseId] =
+  useState<string | null>(null);
+
+const [expenseAmountInput, setExpenseAmountInput] =
+  useState("");
+
 const [showFinishedExpenses, setShowFinishedExpenses] =
   useState(false);
 
@@ -1293,10 +1457,11 @@ const projectionRows = projectionMonths.map(
     );
 
     const cardsEnding = activeExpenses.filter(
-      (expense) =>
-        getInstallmentForMonth(expense, month) ===
-        expense.installments
-    ).length;
+  (expense) =>
+    expense.paymentType !== "recurring" &&
+    getInstallmentForMonth(expense, month) ===
+      expense.installments
+).length;
 
     const loansEnding = activeLoans.filter(
       (loan) =>
@@ -1625,7 +1790,46 @@ async function reactivateFixedConcept(
   });
 }
 
+function openExpenseAmountEditor(
+  expense: CreditCardExpense
+) {
+  setEditingExpenseId(expense.id);
+  setExpenseAmountInput(
+    String(expense.totalAmount)
+  );
+}
 
+async function saveExpenseAmount(
+  event: FormEvent<HTMLFormElement>,
+  expense: CreditCardExpense
+) {
+  event.preventDefault();
+
+  const totalAmount = Number(
+    expenseAmountInput
+  );
+
+  if (
+    Number.isNaN(totalAmount) ||
+    totalAmount <= 0
+  ) {
+    return;
+  }
+
+  const monthlyAmount =
+    totalAmount / expense.installments;
+
+  await db.creditCardExpenses.update(
+    expense.id,
+    {
+      totalAmount,
+      monthlyAmount,
+    }
+  );
+
+  setEditingExpenseId(null);
+  setExpenseAmountInput("");
+}
 // ======================================================
 // PRESUPUESTO - GASTOS FIJOS (eliminar concepto)
 // ======================================================
@@ -3277,7 +3481,115 @@ async function deleteVariableConcept(
             <Trash2 size={20} />
             Eliminar
           </button>
+
+          <button
+  type="button"
+  onClick={() => {
+    setSelectedExpenseId(null);
+    openExpenseAmountEditor(expense);
+  }}
+  className="flex flex-col items-center gap-2 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700"
+>
+  <Pencil size={20} />
+  Editar
+</button>
+
         </div>
+
+ {editingExpenseId && (() => {
+  const expense = expenses.find(
+    (item) => item.id === editingExpenseId
+  );
+
+  if (!expense) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <button
+        type="button"
+        aria-label="Cerrar edición"
+        onClick={() => {
+          setEditingExpenseId(null);
+          setExpenseAmountInput("");
+        }}
+        className="absolute inset-0 bg-slate-900/40"
+      />
+
+      <form
+        onSubmit={(event) =>
+          saveExpenseAmount(
+            event,
+            expense
+          )
+        }
+        className="relative w-full max-w-xl rounded-t-3xl bg-white p-5 shadow-2xl"
+      >
+        <p className="text-lg font-bold text-slate-900">
+          {expense.description}
+        </p>
+
+        <p className="mt-1 text-sm text-slate-500">
+          {expense.installments} cuotas
+        </p>
+
+        <label className="mt-4 block">
+          <span className="text-sm font-semibold text-slate-700">
+            Monto total de la compra
+          </span>
+
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={expenseAmountInput}
+            onChange={(event) =>
+              setExpenseAmountInput(
+                event.target.value
+              )
+            }
+            className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+            autoFocus
+          />
+        </label>
+
+        {expenseAmountInput &&
+          Number(expenseAmountInput) > 0 && (
+            <p className="mt-2 text-sm text-slate-500">
+              Cuota estimada:{" "}
+              <strong>
+                {formatMoney(
+                  Number(expenseAmountInput) /
+                    expense.installments
+                )}
+              </strong>
+            </p>
+          )}
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setEditingExpenseId(null);
+              setExpenseAmountInput("");
+            }}
+            className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700"
+          >
+            Cancelar
+          </button>
+
+          <button
+            type="submit"
+            className="rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+          >
+            Guardar cambios
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+})()}
+
+
       </div>
     </div>
   );
@@ -3287,7 +3599,7 @@ async function deleteVariableConcept(
           </>
         )}
 
- {/* ==================== VISTA DETALLADA DEPRÉSTAMOS ==================== */}
+ {/* ==================== VISTA DETALLADA DE PRÉSTAMOS ==================== */}
 
 
         {activeView === "loans" && (
