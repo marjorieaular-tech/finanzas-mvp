@@ -1355,6 +1355,7 @@ const variableBudgetTotal = variableBudgetConcepts.reduce(
   0
 );
 
+
 // ======================================================
 // APP - FILTROS Y CÁLCULOS
 // ======================================================
@@ -1421,8 +1422,12 @@ const variableBudgetTotal = variableBudgetConcepts.reduce(
     0
   );
 
-  const totalMonthlyCommitment =
-    totalForMonth + totalLoansForMonth;
+  const overallMonthlyCommitment =
+  fixedBudgetTotal +
+  variableBudgetTotal +
+  totalForMonth +
+  totalLoansForMonth;
+
 
   const projectionMonths = Array.from(
   { length: 12 },
@@ -2275,30 +2280,50 @@ async function deleteVariableConcept(
               </p>
 
               <p className="mt-1 text-3xl font-bold">
-                {formatMoney(totalMonthlyCommitment)}
-              </p>
+  {formatMoney(overallMonthlyCommitment)}
+</p>
 
               <div className="mt-4 grid grid-cols-2 gap-3">
-                <div className="rounded-2xl bg-white/10 p-3">
-                  <p className="text-xs text-slate-300">
-                    Tarjetas
-                  </p>
+  <div className="rounded-2xl bg-white/10 p-3">
+    <p className="text-xs text-slate-300">
+      Gastos fijos
+    </p>
 
-                  <p className="mt-1 font-bold">
-                    {formatMoney(totalForMonth)}
-                  </p>
-                </div>
+    <p className="mt-1 text-sm font-bold">
+      {formatMoney(fixedBudgetTotal)}
+    </p>
+  </div>
 
-                <div className="rounded-2xl bg-white/10 p-3">
-                  <p className="text-xs text-slate-300">
-                    Créditos
-                  </p>
+  <div className="rounded-2xl bg-white/10 p-3">
+    <p className="text-xs text-slate-300">
+      Gastos variables
+    </p>
 
-                  <p className="mt-1 font-bold">
-                    {formatMoney(totalLoansForMonth)}
-                  </p>
-                </div>
-              </div>
+    <p className="mt-1 text-sm font-bold">
+      {formatMoney(variableBudgetTotal)}
+    </p>
+  </div>
+
+  <div className="rounded-2xl bg-white/10 p-3">
+    <p className="text-xs text-slate-300">
+      Tarjetas
+    </p>
+
+    <p className="mt-1 text-sm font-bold">
+      {formatMoney(totalForMonth)}
+    </p>
+  </div>
+
+  <div className="rounded-2xl bg-white/10 p-3">
+    <p className="text-xs text-slate-300">
+      Créditos
+    </p>
+
+    <p className="mt-1 text-sm font-bold">
+      {formatMoney(totalLoansForMonth)}
+    </p>
+  </div>
+</div>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
