@@ -5,11 +5,35 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  GripVertical,
   PartyPopper,
   Trash2,
 } from "lucide-react";
 
-type View = "summary" | "cards" | "loans" | "projection";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+
+import { CSS } from "@dnd-kit/utilities";
+
+type View =
+  | "summary"
+  | "budget"
+  | "cards"
+  | "loans"
+  | "projection";
 
 type CreditCardExpense = {
   id: string;
@@ -38,9 +62,27 @@ type Loan = {
   status: "active" | "finished";
 };
 
+type BudgetConcept = {
+  id: string;
+  name: string;
+  type: "fixed" | "variable";
+  status: "active" | "inactive";
+  sortOrder?: number;
+};
+
+type MonthlyBudgetAmount = {
+  id: string;
+  conceptId: string;
+  month: string;
+  budgetedAmount: number;
+  actualAmount: number;
+};
+
 class FinanceDatabase extends Dexie {
   creditCardExpenses!: Table<CreditCardExpense, string>;
   loans!: Table<Loan, string>;
+  budgetConcepts!: Table<BudgetConcept, string>;
+  monthlyBudgetAmounts!: Table<MonthlyBudgetAmount, string>;
 
   constructor() {
     super("finanzas_mvp_db");
@@ -55,6 +97,20 @@ class FinanceDatabase extends Dexie {
         "id, date, bank, cardName, category, currentInstallmentMonth, status",
       loans: "id, bank, currentInstallmentMonth, status",
     });
+
+    this.version(3).stores({
+  creditCardExpenses:
+    "id, date, bank, cardName, category, currentInstallmentMonth, status",
+
+  loans:
+    "id, bank, currentInstallmentMonth, status",
+
+  budgetConcepts:
+    "id, name, type, status",
+
+  monthlyBudgetAmounts:
+    "id, conceptId, month, [conceptId+month]",
+});
   }
 }
 
@@ -635,29 +691,32 @@ function BackupSection() {
     const creditCardExpenses =
       await db.creditCardExpenses.toArray();
 
-    const loans = await db.loans.toArray();
+    const loans =
+      await db.loans.toArray();
+
+    const budgetConcepts =
+      await db.budgetConcepts.toArray();
+
+    const monthlyBudgetAmounts =
+      await db.monthlyBudgetAmounts.toArray();
 
     const backup = {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       creditCardExpenses,
       loans,
+      budgetConcepts,
+      monthlyBudgetAmounts,
     };
 
     const blob = new Blob(
       [JSON.stringify(backup, null, 2)],
-      {
-        type: "application/json",
-      }
+      { type: "application/json" }
     );
 
     const url = URL.createObjectURL(blob);
-
     const link = document.createElement("a");
-
-    const date = new Date()
-      .toISOString()
-      .slice(0, 10);
+    const date = new Date().toISOString().slice(0, 10);
 
     link.href = url;
     link.download = `finanzas-backup-${date}.json`;
@@ -675,7 +734,6 @@ function BackupSection() {
     event: React.ChangeEvent<HTMLInputElement>
   ) {
     const file = event.target.files?.[0];
-
     if (!file) return;
 
     setMessage("");
@@ -692,13 +750,24 @@ function BackupSection() {
         setMessage(
           "El archivo seleccionado no parece ser un respaldo válido."
         );
-
         event.target.value = "";
         return;
       }
 
+      const budgetConcepts = Array.isArray(
+        backup.budgetConcepts
+      )
+        ? backup.budgetConcepts
+        : [];
+
+      const monthlyBudgetAmounts = Array.isArray(
+        backup.monthlyBudgetAmounts
+      )
+        ? backup.monthlyBudgetAmounts
+        : [];
+
       const confirmed = window.confirm(
-        "Este respaldo reemplazará las tarjetas y créditos guardados actualmente en este dispositivo. ¿Querés continuar?"
+        "Este respaldo reemplazará los datos guardados actualmente en este dispositivo. ¿Querés continuar?"
       );
 
       if (!confirmed) {
@@ -710,9 +779,13 @@ function BackupSection() {
         "rw",
         db.creditCardExpenses,
         db.loans,
+        db.budgetConcepts,
+        db.monthlyBudgetAmounts,
         async () => {
           await db.creditCardExpenses.clear();
           await db.loans.clear();
+          await db.budgetConcepts.clear();
+          await db.monthlyBudgetAmounts.clear();
 
           if (backup.creditCardExpenses.length > 0) {
             await db.creditCardExpenses.bulkPut(
@@ -721,12 +794,28 @@ function BackupSection() {
           }
 
           if (backup.loans.length > 0) {
-            await db.loans.bulkPut(backup.loans);
+            await db.loans.bulkPut(
+              backup.loans
+            );
+          }
+
+          if (budgetConcepts.length > 0) {
+            await db.budgetConcepts.bulkPut(
+              budgetConcepts
+            );
+          }
+
+          if (monthlyBudgetAmounts.length > 0) {
+            await db.monthlyBudgetAmounts.bulkPut(
+              monthlyBudgetAmounts
+            );
           }
         }
       );
 
-      setMessage("Respaldo restaurado correctamente ✓");
+      setMessage(
+        "Respaldo restaurado correctamente ✓"
+      );
     } catch (error) {
       console.error(error);
 
@@ -746,8 +835,8 @@ function BackupSection() {
         </h2>
 
         <p className="mt-1 text-sm text-slate-500">
-          Guardá una copia de tus tarjetas y créditos para
-          poder recuperarlos si cambiás de dispositivo.
+          Guardá una copia de tus datos para poder
+          recuperarlos si cambiás de dispositivo.
         </p>
       </div>
 
@@ -779,10 +868,68 @@ function BackupSection() {
       )}
 
       <p className="mt-3 text-xs text-slate-400">
-        El respaldo contiene solamente los datos financieros
+        El respaldo contiene los datos financieros
         guardados por esta app.
       </p>
     </section>
+  );
+}
+
+function SortableBudgetConcept({
+  concept,
+  amount,
+  onEdit,
+}: {
+  concept: BudgetConcept;
+  amount: number;
+  onEdit: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: concept.id,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={`flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 ${
+        isDragging ? "opacity-70 shadow-md" : ""
+      }`}
+    >
+      <button
+  type="button"
+  onClick={onEdit}
+  className="min-w-0 flex-1 text-left"
+>
+  <p className="truncate text-sm font-semibold leading-tight text-slate-900">
+    {concept.name}
+  </p>
+
+  <p className="mt-0.5 text-xs font-medium text-slate-500">
+    {formatMoney(amount)}
+  </p>
+</button>
+
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label={`Mover ${concept.name}`}
+        className="touch-none rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+      >
+        <GripVertical size={18} />
+      </button>
+    </div>
   );
 }
 
@@ -820,6 +967,76 @@ function App() {
       () => db.loans.toArray(),
       []
     ) ?? [];
+
+    const budgetConcepts =
+  useLiveQuery(
+    () => db.budgetConcepts.toArray(),
+    []
+  ) ?? [];
+
+  const monthlyBudgetAmounts =
+  useLiveQuery(
+    () =>
+      db.monthlyBudgetAmounts
+        .where("month")
+        .equals(selectedMonth)
+        .toArray(),
+    [selectedMonth]
+  ) ?? [];
+
+  const fixedBudgetConcepts = budgetConcepts
+  .filter(
+    (concept) =>
+      concept.type === "fixed" &&
+      concept.status === "active"
+  )
+  .sort((a, b) => {
+    const aOrder =
+      a.sortOrder ?? budgetConcepts.indexOf(a);
+
+    const bOrder =
+      b.sortOrder ?? budgetConcepts.indexOf(b);
+
+    return aOrder - bOrder;
+  });
+
+  const variableBudgetConcepts = budgetConcepts
+  .filter(
+    (concept) =>
+      concept.type === "variable" &&
+      concept.status === "active"
+  )
+  .sort((a, b) => {
+    const aOrder =
+      a.sortOrder ?? budgetConcepts.indexOf(a);
+
+    const bOrder =
+      b.sortOrder ?? budgetConcepts.indexOf(b);
+
+    return aOrder - bOrder;
+  });
+
+  const fixedBudgetTotal = fixedBudgetConcepts.reduce(
+  (total, concept) => {
+    const monthlyAmount = monthlyBudgetAmounts.find(
+      (item) => item.conceptId === concept.id
+    );
+
+    return total + (monthlyAmount?.budgetedAmount ?? 0);
+  },
+  0
+);
+
+const variableBudgetTotal = variableBudgetConcepts.reduce(
+  (total, concept) => {
+    const monthlyAmount = monthlyBudgetAmounts.find(
+      (item) => item.conceptId === concept.id
+    );
+
+    return total + (monthlyAmount?.budgetedAmount ?? 0);
+  },
+  0
+);
 
   const activeExpenses = expenses.filter(
     (expense) => expense.status === "active"
@@ -960,6 +1177,45 @@ const projectionRows = projectionMonths.map(
     }, {})
   );
 
+  const [showFixedConceptForm, setShowFixedConceptForm] =
+  useState(false);
+  const [fixedConceptName, setFixedConceptName] =
+  useState("");
+
+  const budgetDragSensors = useSensors(
+  useSensor(PointerSensor, {
+    activationConstraint: {
+      distance: 6,
+    },
+  })
+);
+
+const [editingBudgetConceptId, setEditingBudgetConceptId] =
+  useState<string | null>(null);
+
+const [budgetAmountInput, setBudgetAmountInput] =
+  useState("");
+
+  async function saveFixedConcept(
+  event: FormEvent<HTMLFormElement>
+) {
+  event.preventDefault();
+
+  const name = fixedConceptName.trim();
+
+  if (!name) return;
+
+  await db.budgetConcepts.add({
+    id: createId(),
+    name,
+    type: "fixed",
+    status: "active",
+  });
+
+  setFixedConceptName("");
+  setShowFixedConceptForm(false);
+}
+
   async function deleteExpense(id: string) {
     await db.creditCardExpenses.delete(id);
   }
@@ -982,12 +1238,98 @@ const projectionRows = projectionMonths.map(
     });
   }
 
+async function handleFixedConceptDragEnd(
+  event: DragEndEvent
+) {
+  const { active, over } = event;
+
+  if (!over || active.id === over.id) return;
+
+  const oldIndex = fixedBudgetConcepts.findIndex(
+    (concept) => concept.id === active.id
+  );
+
+  const newIndex = fixedBudgetConcepts.findIndex(
+    (concept) => concept.id === over.id
+  );
+
+  if (oldIndex === -1 || newIndex === -1) return;
+
+  const reorderedConcepts = arrayMove(
+    fixedBudgetConcepts,
+    oldIndex,
+    newIndex
+  );
+
+  await db.transaction(
+    "rw",
+    db.budgetConcepts,
+    async () => {
+      await Promise.all(
+        reorderedConcepts.map((concept, index) =>
+          db.budgetConcepts.update(concept.id, {
+            sortOrder: index,
+          })
+        )
+      );
+    }
+  );
+}
+
+function openBudgetAmountEditor(
+  concept: BudgetConcept
+) {
+  const currentAmount = monthlyBudgetAmounts.find(
+    (item) => item.conceptId === concept.id
+  );
+
+  setEditingBudgetConceptId(concept.id);
+
+  setBudgetAmountInput(
+    currentAmount
+      ? String(currentAmount.budgetedAmount)
+      : ""
+  );
+}
+
+
+async function saveBudgetAmount(
+  event: FormEvent<HTMLFormElement>,
+  concept: BudgetConcept
+) {
+  event.preventDefault();
+
+  const amount =
+    budgetAmountInput.trim() === ""
+      ? 0
+      : Number(budgetAmountInput);
+
+  if (Number.isNaN(amount) || amount < 0) return;
+
+  const existingAmount =
+    await db.monthlyBudgetAmounts
+      .where("[conceptId+month]")
+      .equals([concept.id, selectedMonth])
+      .first();
+
+  await db.monthlyBudgetAmounts.put({
+    id: existingAmount?.id ?? createId(),
+    conceptId: concept.id,
+    month: selectedMonth,
+    budgetedAmount: amount,
+    actualAmount: existingAmount?.actualAmount ?? 0,
+  });
+
+  setEditingBudgetConceptId(null);
+  setBudgetAmountInput("");
+}
+
   return (
     <main className="min-h-screen bg-slate-50 px-3 py-4 text-slate-900 sm:px-6">
       <div className="mx-auto max-w-4xl space-y-4">
         <header className="rounded-3xl bg-slate-900 p-5 text-white">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-            MVP Finanzas
+            Finanzas
           </p>
 
           <h1 className="mt-1 text-2xl font-bold">
@@ -1000,11 +1342,11 @@ const projectionRows = projectionMonths.map(
         </header>
 
         <nav className="sticky top-2 z-20 rounded-2xl border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur">
-          <div className="grid grid-cols-4 gap-1">
+          <div className="grid grid-cols-5 gap-1">
             <button
               type="button"
               onClick={() => setActiveView("summary")}
-              className={`rounded-xl px-2 py-3 text-xs sm:text-sm font-semibold ${
+              className={`rounded-xl px-1 py-3 text-[11px] sm:px-2 sm:text-sm font-semibold ${
                 activeView === "summary"
                   ? "bg-slate-900 text-white"
                   : "text-slate-500 hover:bg-slate-100"
@@ -1014,9 +1356,21 @@ const projectionRows = projectionMonths.map(
             </button>
 
             <button
+  type="button"
+  onClick={() => setActiveView("budget")}
+  className={`rounded-xl px-1 py-3 text-[11px] sm:px-2 sm:text-sm font-semibold sm:px-2 sm:text-sm ${
+    activeView === "budget"
+      ? "bg-slate-900 text-white"
+      : "text-slate-500 hover:bg-slate-100"
+  }`}
+>
+  Presupuesto
+</button>
+
+            <button
               type="button"
               onClick={() => setActiveView("cards")}
-              className={`rounded-xl px-2 py-3 text-xs sm:text-sm font-semibold ${
+              className={`rounded-xl px-1 py-3 text-[11px] sm:px-2 sm:text-sm font-semibold ${
                 activeView === "cards"
                   ? "bg-slate-900 text-white"
                   : "text-slate-500 hover:bg-slate-100"
@@ -1028,7 +1382,7 @@ const projectionRows = projectionMonths.map(
             <button
               type="button"
               onClick={() => setActiveView("loans")}
-              className={`rounded-xl px-2 py-3 text-xs sm:text-sm font-semibold ${
+              className={`rounded-xl px-1 py-3 text-[11px] sm:px-2 sm:text-sm font-semibold ${
                 activeView === "loans"
                   ? "bg-slate-900 text-white"
                   : "text-slate-500 hover:bg-slate-100"
@@ -1040,7 +1394,7 @@ const projectionRows = projectionMonths.map(
             <button
   type="button"
   onClick={() => setActiveView("projection")}
-  className={`rounded-xl px-2 py-3 text-xs sm:text-sm font-semibold sm:text-sm ${
+  className={`rounded-xl px-1 py-3 text-[11px] sm:px-2 sm:text-sm font-semibold sm:text-sm ${
     activeView === "projection"
       ? "bg-slate-900 text-white"
       : "text-slate-500 hover:bg-slate-100"
@@ -1103,6 +1457,238 @@ const projectionRows = projectionMonths.map(
             <BackupSection />
           </section>
         )}
+
+        {activeView === "budget" && (
+  <section className="space-y-3">
+    <div>
+      <h2 className="text-xl font-bold text-slate-900">
+        Presupuesto mensual
+      </h2>
+
+      <p className="mt-1 text-sm text-slate-500">
+        Planificá gastos fijos, variables, ahorro e inversión.
+      </p>
+
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+  <label className="block">
+    <span className="text-sm font-semibold text-slate-700">
+      Mes de presupuesto
+    </span>
+
+    <input
+      type="month"
+      value={selectedMonth}
+      onChange={(event) =>
+        setSelectedMonth(event.target.value)
+      }
+      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+    />
+  </label>
+</div>
+    </div>
+
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div className="flex items-center justify-between gap-3">
+    <div>
+      <h3 className="font-bold text-slate-900">
+        Gastos fijos
+      </h3>
+
+      <p className="mt-1 text-sm text-slate-500">
+        {fixedBudgetConcepts.length}{" "}
+        {fixedBudgetConcepts.length === 1
+          ? "concepto activo"
+          : "conceptos activos"}
+      </p>
+
+      <p className="mt-2 text-lg font-bold text-slate-900">
+  {formatMoney(fixedBudgetTotal)}
+</p>
+
+<p className="text-xs text-slate-500">
+  Total presupuestado del mes
+</p>
+    </div>
+
+    <button
+      type="button"
+      onClick={() =>
+        setShowFixedConceptForm(!showFixedConceptForm)
+      }
+      className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
+    >
+      {showFixedConceptForm
+        ? "Cerrar"
+        : "+ Nuevo concepto"}
+    </button>
+  </div>
+
+  {showFixedConceptForm && (
+    <form
+      onSubmit={saveFixedConcept}
+      className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+    >
+      <label className="block">
+        <span className="text-sm font-semibold text-slate-700">
+          Nombre del gasto fijo
+        </span>
+
+        <input
+          type="text"
+          value={fixedConceptName}
+          onChange={(event) =>
+            setFixedConceptName(event.target.value)
+          }
+          placeholder="Ej: Alquiler"
+          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+        />
+      </label>
+
+      <button
+        type="submit"
+        className="mt-3 w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+      >
+        Guardar concepto
+      </button>
+    </form>
+  )}
+
+{fixedBudgetConcepts.length > 0 && (
+  <DndContext
+    sensors={budgetDragSensors}
+    collisionDetection={closestCenter}
+    onDragEnd={handleFixedConceptDragEnd}
+  >
+    <SortableContext
+      items={fixedBudgetConcepts.map(
+        (concept) => concept.id
+      )}
+      strategy={verticalListSortingStrategy}
+    >
+      <div className="mt-4 space-y-2">
+        {fixedBudgetConcepts.map((concept) => (
+          <SortableBudgetConcept
+  key={concept.id}
+  concept={concept}
+  amount={
+    monthlyBudgetAmounts.find(
+      (item) => item.conceptId === concept.id
+    )?.budgetedAmount ?? 0
+  }
+onEdit={() => openBudgetAmountEditor(concept)}
+/>
+        ))}
+      </div>
+    </SortableContext>
+  </DndContext>
+)}
+
+{editingBudgetConceptId && (
+  <form
+    onSubmit={(event) => {
+      const concept = fixedBudgetConcepts.find(
+        (item) =>
+          item.id === editingBudgetConceptId
+      );
+
+      if (concept) {
+        saveBudgetAmount(event, concept);
+      }
+    }}
+    className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+  >
+    <p className="text-sm font-semibold text-slate-900">
+      {
+        fixedBudgetConcepts.find(
+          (item) =>
+            item.id === editingBudgetConceptId
+        )?.name
+      }
+    </p>
+
+    <p className="mt-1 text-xs text-slate-500">
+      {formatMonth(selectedMonth)}
+    </p>
+
+    <input
+      type="number"
+      min="0"
+      step="1"
+      value={budgetAmountInput}
+      onChange={(event) =>
+        setBudgetAmountInput(event.target.value)
+      }
+      placeholder="Monto presupuestado"
+      autoFocus
+      className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+    />
+
+    <div className="mt-3 grid grid-cols-2 gap-2">
+      <button
+        type="button"
+        onClick={() => {
+          setEditingBudgetConceptId(null);
+          setBudgetAmountInput("");
+        }}
+        className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700"
+      >
+        Cancelar
+      </button>
+
+      <button
+        type="submit"
+        className="rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+      >
+        Guardar monto
+      </button>
+    </div>
+  </form>
+)}
+
+  {fixedBudgetConcepts.length === 0 && (
+    <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+      <p className="text-sm text-slate-500">
+        Todavía no tenés gastos fijos cargados.
+      </p>
+    </div>
+  )}
+</div>
+
+<div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div className="flex items-center justify-between gap-3">
+    <div>
+      <h3 className="font-bold text-slate-900">
+        Gastos variables
+      </h3>
+
+      <p className="mt-1 text-sm text-slate-500">
+        {variableBudgetConcepts.length}{" "}
+        {variableBudgetConcepts.length === 1
+          ? "concepto activo"
+          : "conceptos activos"}
+      </p>
+
+      <p className="mt-2 text-lg font-bold text-slate-900">
+        {formatMoney(variableBudgetTotal)}
+      </p>
+
+      <p className="text-xs text-slate-500">
+        Total presupuestado del mes
+      </p>
+    </div>
+  </div>
+
+  {variableBudgetConcepts.length === 0 && (
+    <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+      <p className="text-sm text-slate-500">
+        Todavía no tenés gastos variables cargados.
+      </p>
+    </div>
+  )}
+</div>
+
+  </section>
+)}
         
         {activeView === "projection" && (
   <section className="space-y-3">
