@@ -216,6 +216,7 @@ function getInstallmentForMonth(
   }
 
   // Compra normal en cuotas.
+
   const installmentNumber =
     expense.currentInstallment + difference;
 
@@ -241,17 +242,31 @@ function getLoanInstallmentForMonth(
   return installmentNumber;
 }
 
+const DEFAULT_EXPENSE_CATEGORIES = [
+  "Cumple",
+  "Movilidad / Uber",
+  "Suscripción",
+  "Emprendimiento",
+  "Ocio / Salidas",
+  "Rappi",
+  "Activos",
+  "Indumentaria / Calzado",
+];
+
 // ======================================================
 // COMPONENTES AUXILIARES
 // ======================================================
 
 // --- Formulario de tarjetas ---
 
-function CardForm() {
+function CardForm({
+  expenseCategories,
+}: {
+  expenseCategories: string[];
+}) {
   const [date, setDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
-
   const [description, setDescription] = useState("");
   const [bank, setBank] = useState("");
   const [cardName, setCardName] = useState("");
@@ -508,12 +523,22 @@ function CardForm() {
 
           <input
             value={category}
+            list="expense-categories"
             onChange={(event) =>
               setCategory(event.target.value)
             }
             placeholder="Ej. Suscripciones"
             className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
           />
+
+          <datalist id="expense-categories">
+  {expenseCategories.map((category) => (
+    <option
+      key={category}
+      value={category}
+    />
+  ))}
+</datalist>
         </label>
 
         {/* MONTO */}
@@ -597,7 +622,7 @@ function CardForm() {
                 event.target.value
               )
             }
-            className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500 sm:max-w-sm"
+            className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
           />
         </label>
       </div>
@@ -663,68 +688,73 @@ function LoanForm() {
   const [successMessage, setSuccessMessage] = useState("");
   const [celebrationMessage, setCelebrationMessage] = useState("");
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleSubmit(
+  event: FormEvent<HTMLFormElement>
+) {
+  event.preventDefault();
 
-    setSuccessMessage("");
-    setCelebrationMessage("");
+  setSuccessMessage("");
+  setCelebrationMessage("");
 
-    const numericInitialAmount = Number(initialAmount);
-    const numericMonthlyPayment = Number(monthlyPayment);
-    const numericTotalInstallments = Number(totalInstallments);
-    const numericCurrentInstallment = Number(currentInstallment);
+  const numericInitialAmount = Number(initialAmount);
+  const numericMonthlyPayment = Number(monthlyPayment);
+  const numericTotalInstallments = Number(totalInstallments);
+  const numericCurrentInstallment = Number(currentInstallment);
 
-    const savedDescription = description.trim();
+  const savedDescription = description.trim();
+  const savedBank = bank.trim();
+
+  if (
+    !savedBank ||
+    !savedDescription ||
+    numericInitialAmount <= 0 ||
+    numericMonthlyPayment <= 0 ||
+    numericTotalInstallments <= 0 ||
+    numericCurrentInstallment <= 0 ||
+    numericCurrentInstallment > numericTotalInstallments
+  ) {
+    return;
+  }
+
+  setIsSaving(true);
+
+  try {
+    await db.loans.add({
+      id: createId(),
+      bank: savedBank,
+      description: savedDescription,
+      initialAmount: numericInitialAmount,
+      monthlyPayment: numericMonthlyPayment,
+      totalInstallments: numericTotalInstallments,
+      currentInstallment: numericCurrentInstallment,
+      currentInstallmentMonth,
+      status: "active",
+    });
+
+    setSuccessMessage(
+      "Crédito guardado correctamente ✓"
+    );
 
     if (
-      !bank.trim() ||
-      !savedDescription ||
-      numericInitialAmount <= 0 ||
-      numericMonthlyPayment <= 0 ||
-      numericTotalInstallments <= 0 ||
-      numericCurrentInstallment <= 0 ||
-      numericCurrentInstallment > numericTotalInstallments
+      numericCurrentInstallment ===
+      numericTotalInstallments
     ) {
-      return;
+      setCelebrationMessage(
+        "🎉 ¡Esta es la última cuota!"
+      );
     }
 
-    const isLastInstallment =
-      numericCurrentInstallment === numericTotalInstallments;
-
-    setIsSaving(true);
-
-    try {
-      await db.loans.add({
-        id: createId(),
-        bank: bank.trim(),
-        description: savedDescription,
-        initialAmount: numericInitialAmount,
-        monthlyPayment: numericMonthlyPayment,
-        totalInstallments: numericTotalInstallments,
-        currentInstallment: numericCurrentInstallment,
-        currentInstallmentMonth,
-        status: "active",
-      });
-
-      setSuccessMessage("Crédito guardado correctamente ✓");
-
-      if (isLastInstallment) {
-        setCelebrationMessage(
-          `¡Felicitaciones! Última cuota de ${savedDescription} 🥳`
-        );
-      }
-
-      setBank("");
-      setDescription("");
-      setInitialAmount("");
-      setMonthlyPayment("");
-      setTotalInstallments("");
-      setCurrentInstallment("1");
-      setCurrentInstallmentMonth(currentMonth);
-    } finally {
-      setIsSaving(false);
-    }
+    setBank("");
+    setDescription("");
+    setInitialAmount("");
+    setMonthlyPayment("");
+    setTotalInstallments("");
+    setCurrentInstallment("1");
+    setCurrentInstallmentMonth(currentMonth);
+  } finally {
+    setIsSaving(false);
   }
+}
 
   return (
     <form
@@ -846,7 +876,7 @@ function LoanForm() {
             onChange={(event) =>
               setCurrentInstallmentMonth(event.target.value)
             }
-            className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500 sm:max-w-sm"
+            className="w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
           />
         </label>
       </div>
@@ -1139,6 +1169,8 @@ function App() {
 // APP - ESTADOS
 // ======================================================
 
+  const [hasEnteredApp, setHasEnteredApp] = useState(false);
+
 
   const [selectedMonth, setSelectedMonth] =
     useState(currentMonth);
@@ -1188,10 +1220,22 @@ function App() {
   const [selectedExpenseId, setSelectedExpenseId] =
   useState<string | null>(null);
 
-  const [editingExpenseId, setEditingExpenseId] =
-  useState<string | null>(null);
+  const [expenseSheetMode, setExpenseSheetMode] =
+  useState<"actions" | "edit">("actions");
 
-const [expenseAmountInput, setExpenseAmountInput] =
+  const [editingExpenseDescription, setEditingExpenseDescription] =
+  useState("");
+
+const [editingExpenseCategory, setEditingExpenseCategory] =
+  useState("");
+
+const [editingExpenseAmount, setEditingExpenseAmount] =
+  useState("");
+
+const [editingExpenseInstallment, setEditingExpenseInstallment] =
+  useState("");
+
+const [editingExpenseMonth, setEditingExpenseMonth] =
   useState("");
 
 const [showFinishedExpenses, setShowFinishedExpenses] =
@@ -1230,6 +1274,9 @@ const [variableBudgetEditError, setVariableBudgetEditError] =
 
 const [showArchivedVariableConcepts, setShowArchivedVariableConcepts] =
   useState(false);
+
+const [expenseEditError, setExpenseEditError] =
+  useState("");
 
 // ======================================================
 // APP - LECTURA DE DATOS / INDEXEDDB
@@ -1520,6 +1567,22 @@ const projectionRows = projectionMonths.map(
   })
 );
 
+const expenseCategories = Array.from(
+  new Map(
+    [
+      ...DEFAULT_EXPENSE_CATEGORIES,
+      ...expenses
+        .map((expense) => expense.category)
+        .filter(Boolean),
+    ].map((category) => [
+      category.trim().toLocaleLowerCase("es"),
+      category.trim(),
+    ])
+  ).values()
+).sort((a, b) =>
+  a.localeCompare(b, "es")
+);
+
 
 // ======================================================
 // APP - ACCIONES Y FUNCIONES
@@ -1795,46 +1858,92 @@ async function reactivateFixedConcept(
   });
 }
 
-function openExpenseAmountEditor(
+function openExpenseEditor(
   expense: CreditCardExpense
 ) {
-  setEditingExpenseId(expense.id);
-  setExpenseAmountInput(
-    String(expense.totalAmount)
+  setEditingExpenseDescription(expense.description);
+  setEditingExpenseCategory(expense.category);
+  setEditingExpenseAmount(String(expense.totalAmount));
+  setEditingExpenseInstallment(
+    String(expense.currentInstallment)
   );
+  setEditingExpenseMonth(
+    expense.currentInstallmentMonth
+  );
+
+  setExpenseSheetMode("edit");
 }
 
-async function saveExpenseAmount(
+async function saveExpenseEdits(
   event: FormEvent<HTMLFormElement>,
   expense: CreditCardExpense
 ) {
   event.preventDefault();
 
-  const totalAmount = Number(
-    expenseAmountInput
-  );
+  const description =
+    editingExpenseDescription.trim();
+
+  const amount = Number(editingExpenseAmount);
+
+  const currentInstallment =
+    expense.paymentType === "recurring"
+      ? 1
+      : Number(editingExpenseInstallment);
+
+  if (!description) {
+    setExpenseEditError(
+      "La descripción no puede quedar vacía."
+    );
+    return;
+  }
+
+  if (Number.isNaN(amount) || amount <= 0) {
+    setExpenseEditError(
+      "Ingresá un monto válido."
+    );
+    return;
+  }
 
   if (
-    Number.isNaN(totalAmount) ||
-    totalAmount <= 0
+    expense.paymentType !== "recurring" &&
+    (
+      Number.isNaN(currentInstallment) ||
+      currentInstallment < 1 ||
+      currentInstallment > expense.installments
+    )
   ) {
+    setExpenseEditError(
+      "Revisá el número de cuota actual."
+    );
     return;
   }
 
   const monthlyAmount =
-    totalAmount / expense.installments;
+    expense.paymentType === "recurring"
+      ? amount
+      : amount / expense.installments;
 
   await db.creditCardExpenses.update(
     expense.id,
     {
-      totalAmount,
+      description,
+      category:
+        editingExpenseCategory.trim() ||
+        "Sin categoría",
+      totalAmount: amount,
       monthlyAmount,
+      currentInstallment,
+      currentInstallmentMonth:
+        editingExpenseMonth,
     }
   );
 
-  setEditingExpenseId(null);
-  setExpenseAmountInput("");
+  setExpenseEditError("");
+  setExpenseSheetMode("actions");
+  setSelectedExpenseId(null);
 }
+
+
 // ======================================================
 // PRESUPUESTO - GASTOS FIJOS (eliminar concepto)
 // ======================================================
@@ -2176,25 +2285,75 @@ async function deleteVariableConcept(
   setSelectedVariableConceptId(null);
 }
 
+if (!hasEnteredApp) {
+  return (
+    <main className="min-h-screen bg-[#07153A] px-5 py-8 text-white">
+      <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center">
+
+        {/* LOGO */}
+        <div className="mb-8">
+          <img
+            src="/pwa-512x512.png"
+            alt="Finanself"
+            className="h-28 w-28 rounded-3xl shadow-2xl"
+          />
+        </div>
+
+        {/* MARCA */}
+        <div className="text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-200/80">
+            Finanzas personales
+          </p>
+
+          <h1 className="mt-3 text-4xl font-extrabold tracking-tight">
+            <span className="text-white">
+              Finan
+            </span>
+
+            <span className="bg-gradient-to-r from-[#0A59FF] via-[#31C7F2] to-[#37E2B4] bg-clip-text text-transparent">
+              self
+            </span>
+          </h1>
+
+          <p className="mt-4 text-lg font-semibold leading-7 text-slate-100">
+            Control de gastos y compromisos mensuales
+          </p>
+
+          <p className="mt-3 text-sm leading-6 text-slate-300">
+            Gestión personal y familiar para registrar,
+            ordenar y proyectar tus finanzas con claridad.
+          </p>
+        </div>
+
+        {/* BOTÓN DE ENTRADA */}
+        <button
+          type="button"
+          onClick={() => {
+            setHasEnteredApp(true);
+            setActiveView("summary");
+          }}
+          className="mt-10 w-full rounded-2xl bg-gradient-to-r from-[#0A59FF] via-[#31C7F2] to-[#37E2B4] px-6 py-4 text-base font-bold text-[#07153A] shadow-lg transition active:scale-[0.98]"
+        >
+          ¡Vamos!
+        </button>
+
+        <p className="mt-5 text-center text-xs text-slate-400">
+          Tu organización financiera, más clara y más simple.
+        </p>
+
+      </div>
+    </main>
+  );
+}
+
 
 {/* ==================== RETURN PRINCIPAL DE APP ¿? ==================== */}
 
   return (
     <main className="min-h-screen bg-slate-50 px-3 py-4 text-slate-900 sm:px-6">
       <div className="mx-auto max-w-4xl space-y-4">
-        <header className="rounded-3xl bg-slate-900 p-5 text-white">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-            Finanzas
-          </p>
-
-          <h1 className="mt-1 text-2xl font-bold">
-            Control de Gastos y Compromisos Mensuales
-          </h1>
-
-          <p className="mt-1 text-sm text-slate-300">
-            Gestión personal
-          </p>
-        </header>
+        
+        {/* ==================== NAVEGACIÓN ==================== */}
 
         <nav className="sticky top-2 z-20 rounded-2xl border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur">
           <div className="grid grid-cols-5 gap-1">
@@ -2272,19 +2431,23 @@ async function deleteVariableConcept(
  {/* ==================== RESUMEN ==================== */}
 
         {activeView === "summary" && (
-          <section className="space-y-3">
-            <div className="rounded-3xl bg-slate-900 p-5 text-white shadow-sm">
-              <p className="text-sm text-slate-300">
-                Compromiso total en{" "}
-                {formatMonth(selectedMonth)}
-              </p>
+  <section className="space-y-3">
+    <div className="rounded-3xl bg-slate-900 p-5 text-white shadow-sm">
+      <p className="text-sm text-slate-300">
+        Compromiso total en{" "}
+        {formatMonth(selectedMonth)}
+      </p>
 
               <p className="mt-1 text-3xl font-bold">
   {formatMoney(overallMonthlyCommitment)}
 </p>
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
-  <div className="rounded-2xl bg-white/10 p-3">
+        <div className="mt-4 grid w-full grid-cols-2 gap-3">
+  <button
+    type="button"
+    onClick={() => setActiveView("budget")}
+    className="w-full rounded-2xl bg-white/10 p-3 text-left transition hover:bg-white/15 active:scale-[0.98]"
+  >
     <p className="text-xs text-slate-300">
       Gastos fijos
     </p>
@@ -2292,9 +2455,18 @@ async function deleteVariableConcept(
     <p className="mt-1 text-sm font-bold">
       {formatMoney(fixedBudgetTotal)}
     </p>
-  </div>
 
-  <div className="rounded-2xl bg-white/10 p-3">
+    <p className="mt-1 text-[10px] text-slate-400">
+      Ver detalle →
+    </p>
+  </button>
+
+
+  <button
+    type="button"
+    onClick={() => setActiveView("budget")}
+    className="w-full rounded-2xl bg-white/10 p-3 text-left transition hover:bg-white/15 active:scale-[0.98]"
+  >
     <p className="text-xs text-slate-300">
       Gastos variables
     </p>
@@ -2302,9 +2474,18 @@ async function deleteVariableConcept(
     <p className="mt-1 text-sm font-bold">
       {formatMoney(variableBudgetTotal)}
     </p>
-  </div>
 
-  <div className="rounded-2xl bg-white/10 p-3">
+    <p className="mt-1 text-[10px] text-slate-400">
+      Ver detalle →
+    </p>
+  </button>
+
+
+  <button
+    type="button"
+    onClick={() => setActiveView("cards")}
+    className="w-fullrounded-2xl bg-white/10 p-3 text-left transition hover:bg-white/15 active:scale-[0.98]"
+  >
     <p className="text-xs text-slate-300">
       Tarjetas
     </p>
@@ -2312,9 +2493,18 @@ async function deleteVariableConcept(
     <p className="mt-1 text-sm font-bold">
       {formatMoney(totalForMonth)}
     </p>
-  </div>
 
-  <div className="rounded-2xl bg-white/10 p-3">
+    <p className="mt-1 text-[10px] text-slate-400">
+      Ver detalle →
+    </p>
+  </button>
+
+
+  <button
+    type="button"
+    onClick={() => setActiveView("loans")}
+    className="w-full rounded-2xl bg-white/10 p-3 text-left transition hover:bg-white/15 active:scale-[0.98]"
+  >
     <p className="text-xs text-slate-300">
       Créditos
     </p>
@@ -2322,7 +2512,12 @@ async function deleteVariableConcept(
     <p className="mt-1 text-sm font-bold">
       {formatMoney(totalLoansForMonth)}
     </p>
-  </div>
+
+    <p className="mt-1 text-[10px] text-slate-400">
+      Ver detalle →
+    </p>
+  </button>
+
 </div>
             </div>
 
@@ -3220,7 +3415,40 @@ async function deleteVariableConcept(
                 </button>
               </div>
 
-              {showCardForm && <CardForm />}
+<div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+  <label className="block">
+    <span className="text-sm font-semibold text-slate-700">
+      Mes
+    </span>
+
+    <input
+      type="month"
+      value={selectedMonth}
+      onChange={(event) =>
+        setSelectedMonth(event.target.value)
+      }
+      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+    />
+  </label>
+
+  <div className="mt-3 flex items-end justify-between gap-3">
+    <div>
+      <p className="text-xs text-slate-500">
+        Total de tarjetas en {formatMonth(selectedMonth)}
+      </p>
+
+      <p className="mt-1 text-xl font-bold text-slate-900">
+        {formatMoney(totalForMonth)}
+      </p>
+    </div>
+  </div>
+</div>
+
+             {showCardForm && (
+  <CardForm
+    expenseCategories={expenseCategories}
+  />
+)}
             </section>
 
             <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -3370,9 +3598,10 @@ async function deleteVariableConcept(
 
                                        <button
                                           type="button"
-                                          onClick={() =>
-                                            setSelectedExpenseId(expense.id)
-                                           }
+                                          onClick={() => {
+                                            setSelectedExpenseId(expense.id);
+                                             setExpenseSheetMode("actions");
+}}
                                           className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-100"
                                             >
                                               Acciones
@@ -3458,167 +3687,264 @@ async function deleteVariableConcept(
     <div className="fixed inset-0 z-50 flex items-end justify-center">
       <button
         type="button"
-        aria-label="Cerrar acciones"
-        onClick={() =>
-          setSelectedExpenseId(null)
-        }
-        className="absolute inset-0 bg-slate-900/40"
-      />
-
-      <div className="relative w-full max-w-xl rounded-t-3xl bg-white p-5 shadow-2xl">
-        <div>
-          <p className="text-lg font-bold text-slate-900">
-            {expense.description}
-          </p>
-
-          <p className="mt-1 text-sm text-slate-500">
-            {expense.bank} · {expense.cardName}
-          </p>
-        </div>
-
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={async () => {
-              await finishExpense(expense);
-              setSelectedExpenseId(null);
-            }}
-            className="flex flex-col items-center gap-2 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700"
-          >
-            <Check size={20} />
-            Finalizar
-          </button>
-
-          <button
-            type="button"
-            onClick={async () => {
-              const confirmed = window.confirm(
-                `¿Eliminar "${expense.description}" definitivamente?`
-              );
-
-              if (!confirmed) return;
-
-              await deleteExpense(expense.id);
-              setSelectedExpenseId(null);
-            }}
-            className="flex flex-col items-center gap-2 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700"
-          >
-            <Trash2 size={20} />
-            Eliminar
-          </button>
-
-          <button
-  type="button"
-  onClick={() => {
-    setSelectedExpenseId(null);
-    openExpenseAmountEditor(expense);
-  }}
-  className="flex flex-col items-center gap-2 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700"
->
-  <Pencil size={20} />
-  Editar
-</button>
-
-        </div>
-
- {editingExpenseId && (() => {
-  const expense = expenses.find(
-    (item) => item.id === editingExpenseId
-  );
-
-  if (!expense) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
-      <button
-        type="button"
-        aria-label="Cerrar edición"
+        aria-label="Cerrar"
         onClick={() => {
-          setEditingExpenseId(null);
-          setExpenseAmountInput("");
+          setSelectedExpenseId(null);
+          setExpenseSheetMode("actions");
+          setExpenseEditError("");
         }}
         className="absolute inset-0 bg-slate-900/40"
       />
 
-      <form
-        onSubmit={(event) =>
-          saveExpenseAmount(
-            event,
-            expense
-          )
-        }
-        className="relative w-full max-w-xl rounded-t-3xl bg-white p-5 shadow-2xl"
-      >
-        <p className="text-lg font-bold text-slate-900">
-          {expense.description}
-        </p>
+      <div className="relative w-full max-w-xl rounded-t-3xl bg-white p-5 shadow-2xl">
 
-        <p className="mt-1 text-sm text-slate-500">
-          {expense.installments} cuotas
-        </p>
+        {expenseSheetMode === "actions" ? (
+          <>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-lg font-bold text-slate-900">
+                  {expense.description}
+                </p>
 
-        <label className="mt-4 block">
-          <span className="text-sm font-semibold text-slate-700">
-            Monto total de la compra
-          </span>
+                <p className="mt-1 text-sm text-slate-500">
+                  {expense.bank} · {expense.cardName}
+                </p>
 
-          <input
-            type="number"
-            min="1"
-            step="1"
-            value={expenseAmountInput}
-            onChange={(event) =>
-              setExpenseAmountInput(
-                event.target.value
+                <p className="mt-1 text-sm text-slate-500">
+                  {expense.paymentType === "recurring"
+                    ? `Recurrente · ${formatMoney(expense.monthlyAmount)}/mes`
+                    : `Cuota ${expense.currentInstallment}/${expense.installments} · ${formatMoney(expense.monthlyAmount)}`}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedExpenseId(null);
+                  setExpenseSheetMode("actions");
+                }}
+                className="rounded-full p-2 text-slate-400 hover:bg-slate-100"
+                aria-label="Cerrar"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="mt-5 flex items-center justify-center gap-8">
+              <button
+                type="button"
+                onClick={() =>
+                  openExpenseEditor(expense)
+                }
+                className="rounded-full p-3 text-slate-600 hover:bg-slate-100"
+                title="Editar"
+                aria-label="Editar compra"
+              >
+                <Pencil size={21} />
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  await finishExpense(expense);
+                  setSelectedExpenseId(null);
+                }}
+                className="rounded-full p-3 text-slate-600 hover:bg-slate-100"
+                title="Finalizar"
+                aria-label="Finalizar compra"
+              >
+                <Check size={21} />
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  const confirmed =
+                    window.confirm(
+                      `¿Eliminar "${expense.description}" definitivamente?`
+                    );
+
+                  if (!confirmed) return;
+
+                  await deleteExpense(
+                    expense.id
+                  );
+
+                  setSelectedExpenseId(null);
+                }}
+                className="rounded-full p-3 text-red-500 hover:bg-red-50"
+                title="Eliminar"
+                aria-label="Eliminar compra"
+              >
+                <Trash2 size={21} />
+              </button>
+            </div>
+          </>
+        ) : (
+          <form
+            onSubmit={(event) =>
+              saveExpenseEdits(
+                event,
+                expense
               )
             }
-            className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
-            autoFocus
-          />
-        </label>
-
-        {expenseAmountInput &&
-          Number(expenseAmountInput) > 0 && (
-            <p className="mt-2 text-sm text-slate-500">
-              Cuota estimada:{" "}
-              <strong>
-                {formatMoney(
-                  Number(expenseAmountInput) /
-                    expense.installments
-                )}
-              </strong>
-            </p>
-          )}
-
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setEditingExpenseId(null);
-              setExpenseAmountInput("");
-            }}
-            className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700"
           >
-            Cancelar
-          </button>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-lg font-bold text-slate-900">
+                  Editar compra
+                </p>
 
-          <button
-            type="submit"
-            className="rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
-          >
-            Guardar cambios
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-})()}
+                <p className="text-sm text-slate-500">
+                  {expense.bank} · {expense.cardName}
+                </p>
+              </div>
 
+              <button
+                type="button"
+                onClick={() =>
+                  setExpenseSheetMode("actions")
+                }
+                className="rounded-full p-2 text-slate-400 hover:bg-slate-100"
+                aria-label="Volver"
+              >
+                <X size={20} />
+              </button>
+            </div>
 
+            <label className="mt-4 block">
+              <span className="text-sm font-semibold text-slate-700">
+                Descripción
+              </span>
+
+              <input
+                type="text"
+                value={editingExpenseDescription}
+                onChange={(event) => {
+                  setEditingExpenseDescription(
+                    event.target.value
+                  );
+                  setExpenseEditError("");
+                }}
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none"
+              />
+            </label>
+
+            <label className="mt-3 block">
+              <span className="text-sm font-semibold text-slate-700">
+                Categoría
+              </span>
+
+              <input
+                type="text"
+                value={editingExpenseCategory}
+                list="expense-categories"
+                onChange={(event) => {
+                  setEditingExpenseCategory(
+                    event.target.value
+                  );
+                  setExpenseEditError("");
+                }}
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none"
+              />
+            </label>
+
+            <label className="mt-3 block">
+              <span className="text-sm font-semibold text-slate-700">
+                {expense.paymentType === "recurring"
+                  ? "Monto mensual"
+                  : "Monto total"}
+              </span>
+
+              <input
+                type="number"
+                min="1"
+                value={editingExpenseAmount}
+                onChange={(event) => {
+                  setEditingExpenseAmount(
+                    event.target.value
+                  );
+                  setExpenseEditError("");
+                }}
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none"
+              />
+            </label>
+
+            {expense.paymentType !== "recurring" && (
+              <label className="mt-3 block">
+                <span className="text-sm font-semibold text-slate-700">
+                  Número de cuota actual
+                </span>
+
+                <input
+                  type="number"
+                  min="1"
+                  max={expense.installments}
+                  value={editingExpenseInstallment}
+                  onChange={(event) => {
+                    setEditingExpenseInstallment(
+                      event.target.value
+                    );
+                    setExpenseEditError("");
+                  }}
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none"
+                />
+              </label>
+            )}
+
+            <label className="mt-3 block">
+              <span className="text-sm font-semibold text-slate-700">
+                {expense.paymentType === "recurring"
+                  ? "Repetir mensualmente desde"
+                  : "Mes de esa cuota"}
+              </span>
+
+              <input
+                type="month"
+                value={editingExpenseMonth}
+                onChange={(event) => {
+                  setEditingExpenseMonth(
+                    event.target.value
+                  );
+                  setExpenseEditError("");
+                }}
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none"
+              />
+            </label>
+
+            {expenseEditError && (
+              <p className="mt-3 text-sm font-medium text-red-600">
+                {expenseEditError}
+              </p>
+            )}
+
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setExpenseSheetMode(
+                    "actions"
+                  )
+                }
+                className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="submit"
+                className="rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+              >
+                Guardar cambios
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );
 })()}
+
 
             </section>
           </>
@@ -3656,6 +3982,33 @@ async function deleteVariableConcept(
 
               {showLoanForm && <LoanForm />}
             </section>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+  <label className="block">
+    <span className="text-sm font-semibold text-slate-700">
+      Mes
+    </span>
+
+    <input
+      type="month"
+      value={selectedMonth}
+      onChange={(event) =>
+        setSelectedMonth(event.target.value)
+      }
+      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+    />
+  </label>
+
+  <div className="mt-3">
+    <p className="text-xs text-slate-500">
+      Total de créditos en {formatMonth(selectedMonth)}
+    </p>
+
+    <p className="mt-1 text-xl font-bold text-slate-900">
+      {formatMoney(totalLoansForMonth)}
+    </p>
+  </div>
+</div>
 
             <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
               <h2 className="text-lg font-bold">
