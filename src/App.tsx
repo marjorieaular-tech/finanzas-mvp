@@ -108,6 +108,15 @@ type MonthlyBudgetAmount = {
   actualAmount: number;
 };
 
+type Income = {
+  id: string;
+  month: string;
+  description: string;
+  expectedAmount: number;
+  actualAmount: number;
+  status: "active" | "inactive";
+};
+
 // ======================================================
 // BASE DE DATOS - DEXIE / INDEXEDDB
 // ======================================================
@@ -117,7 +126,7 @@ class FinanceDatabase extends Dexie {
   loans!: Table<Loan, string>;
   budgetConcepts!: Table<BudgetConcept, string>;
   monthlyBudgetAmounts!: Table<MonthlyBudgetAmount, string>;
-
+  incomes!: Table<Income, string>;
   constructor() {
     super("finanzas_mvp_db");
 
@@ -145,6 +154,24 @@ class FinanceDatabase extends Dexie {
   monthlyBudgetAmounts:
     "id, conceptId, month, [conceptId+month]",
 });
+
+this.version(4).stores({
+  creditCardExpenses:
+    "id, date, bank, cardName, category, currentInstallmentMonth, status",
+
+  loans:
+    "id, bank, currentInstallmentMonth, status",
+
+  budgetConcepts:
+    "id, name, type, status",
+
+  monthlyBudgetAmounts:
+    "id, conceptId, month, [conceptId+month]",
+
+  incomes:
+    "id, month, description, status",
+});
+
   }
 }
 
@@ -1367,7 +1394,7 @@ const [expenseEditError, setExpenseEditError] =
   useState("");
 
 const [openBudgetSection, setOpenBudgetSection] =
-  useState<"fixed" | "variable" | null>(null);
+  useState<"income" | "fixed" | "variable" | null>(null);
 
   const [categorySearch, setCategorySearch] =
   useState("");
@@ -1383,6 +1410,21 @@ const [categoryRenameError, setCategoryRenameError] =
 
   const [showCardTools, setShowCardTools] =
   useState(false);
+
+  const [showIncomeForm, setShowIncomeForm] =
+  useState(false);
+
+const [incomeDescription, setIncomeDescription] =
+  useState("");
+
+const [incomeExpectedAmount, setIncomeExpectedAmount] =
+  useState("");
+
+const [incomeActualAmount, setIncomeActualAmount] =
+  useState("");
+
+const [incomeError, setIncomeError] =
+  useState("");
   
 
 // ======================================================
@@ -1416,6 +1458,16 @@ const [categoryRenameError, setCategoryRenameError] =
   useLiveQuery(
     () =>
       db.monthlyBudgetAmounts
+        .where("month")
+        .equals(selectedMonth)
+        .toArray(),
+    [selectedMonth]
+  ) ?? [];
+
+  const incomes =
+  useLiveQuery(
+    () =>
+      db.incomes
         .where("month")
         .equals(selectedMonth)
         .toArray(),
@@ -1600,12 +1652,25 @@ const variableBudgetTotal = variableBudgetConcepts.reduce(
     0
   );
 
+
+   const activeIncomes = incomes.filter(
+  (income) => income.status === "active"
+);
+
+const totalExpectedIncome = activeIncomes.reduce(
+  (total, income) =>
+    total + income.expectedAmount,
+  0
+);
+
   const overallMonthlyCommitment =
   fixedBudgetTotal +
   variableBudgetTotal +
   totalForMonth +
   totalLoansForMonth;
 
+  const availableMonthlyAmount =
+  totalExpectedIncome - overallMonthlyCommitment;
 
   const projectionMonths = Array.from(
   { length: 12 },
@@ -1741,6 +1806,8 @@ const filteredCategoryUsage =
       normalizeCategoryName(categorySearch)
     )
   );
+
+ 
 
 
 // ======================================================
@@ -2548,6 +2615,65 @@ if (!hasEnteredApp) {
   );
 }
 
+async function saveIncome(
+  event: FormEvent<HTMLFormElement>
+) {
+  event.preventDefault();
+
+  const description =
+    incomeDescription.trim();
+
+  const expectedAmount =
+    Number(incomeExpectedAmount);
+
+  const actualAmount =
+    incomeActualAmount.trim() === ""
+      ? 0
+      : Number(incomeActualAmount);
+
+  if (!description) {
+    setIncomeError(
+      "Ingresá una descripción."
+    );
+    return;
+  }
+
+  if (
+    Number.isNaN(expectedAmount) ||
+    expectedAmount <= 0
+  ) {
+    setIncomeError(
+      "Ingresá un monto previsto válido."
+    );
+    return;
+  }
+
+  if (
+    Number.isNaN(actualAmount) ||
+    actualAmount < 0
+  ) {
+    setIncomeError(
+      "Revisá el monto real."
+    );
+    return;
+  }
+
+  await db.incomes.add({
+    id: createId(),
+    month: selectedMonth,
+    description,
+    expectedAmount,
+    actualAmount,
+    status: "active",
+  });
+
+  setIncomeDescription("");
+  setIncomeExpectedAmount("");
+  setIncomeActualAmount("");
+  setIncomeError("");
+  setShowIncomeForm(false);
+}
+
 
 {/* ==================== RETURN PRINCIPAL DE APP ¿? ==================== */}
 
@@ -2664,78 +2790,85 @@ if (!hasEnteredApp) {
   {formatMoney(overallMonthlyCommitment)}
 </p>
 
-        <div className="mt-4 grid w-full grid-cols-2 gap-3">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+  <div className="rounded-2xl bg-white px-4 py-3 text-slate-900 shadow-sm">
+    <p className="text-xs text-slate-500">Ingresos</p>
+    <p className="mt-1 text-lg font-bold">
+      {formatMoney(totalExpectedIncome)}
+    </p>
+  </div>
+
+  <div className="rounded-2xl bg-white px-4 py-3 text-slate-900 shadow-sm">
+    <p className="text-xs text-slate-500">Compromisos</p>
+    <p className="mt-1 text-lg font-bold">
+      {formatMoney(overallMonthlyCommitment)}
+    </p>
+  </div>
+
+  <div className="rounded-2xl bg-white px-4 py-3 text-slate-900 shadow-sm">
+    <p className="text-xs text-slate-500">Disponible</p>
+    <p className="mt-1 text-lg font-bold">
+      {formatMoney(availableMonthlyAmount)}
+    </p>
+  </div>
+</div>
+
+<div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
   <button
     type="button"
     onClick={() => setActiveView("budget")}
-    className="w-full rounded-2xl bg-white/10 p-3 text-left transition hover:bg-white/15 active:scale-[0.98]"
+    className="min-h-[110px] rounded-2xl bg-white/10 p-4 text-left transition hover:bg-white/15 active:scale-[0.98]"
   >
-    <p className="text-xs text-slate-300">
-      Gastos fijos
-    </p>
-
-    <p className="mt-1 text-sm font-bold">
+    <p className="text-xs text-slate-300">Gastos fijos</p>
+    <p className="mt-1 text-lg font-bold">
       {formatMoney(fixedBudgetTotal)}
     </p>
-
-    <p className="mt-1 text-[10px] text-slate-400">
+    <p className="mt-2 text-[11px] text-slate-400">
       Ver detalle →
     </p>
   </button>
-
 
   <button
     type="button"
     onClick={() => setActiveView("budget")}
-    className="w-full rounded-2xl bg-white/10 p-3 text-left transition hover:bg-white/15 active:scale-[0.98]"
+    className="min-h-[110px] rounded-2xl bg-white/10 p-4 text-left transition hover:bg-white/15 active:scale-[0.98]"
   >
-    <p className="text-xs text-slate-300">
-      Gastos variables
-    </p>
-
-    <p className="mt-1 text-sm font-bold">
+    <p className="text-xs text-slate-300">Gastos variables</p>
+    <p className="mt-1 text-lg font-bold">
       {formatMoney(variableBudgetTotal)}
     </p>
-
-    <p className="mt-1 text-[10px] text-slate-400">
+    <p className="mt-2 text-[11px] text-slate-400">
       Ver detalle →
     </p>
   </button>
-
 
   <button
     type="button"
     onClick={() => setActiveView("cards")}
-    className="w-fullrounded-2xl bg-white/10 p-3 text-left transition hover:bg-white/15 active:scale-[0.98]"
+    className="min-h-[110px] rounded-2xl bg-white/10 p-4 text-left transition hover:bg-white/15 active:scale-[0.98]"
   >
-    <p className="text-xs text-slate-300">
-      Tarjetas
+    <p className="text-xs text-slate-300">Tarjetas</p>
+    <p className="mt-1 text-lg font-bold">
+      {formatMoney(totalForMonth)}
     </p>
-
-    <p className="mt-1 text-[10px] text-slate-400">
+    <p className="mt-2 text-[11px] text-slate-400">
       Ver detalle →
     </p>
   </button>
-
 
   <button
     type="button"
     onClick={() => setActiveView("loans")}
-    className="w-full rounded-2xl bg-white/10 p-3 text-left transition hover:bg-white/15 active:scale-[0.98]"
+    className="min-h-[110px] rounded-2xl bg-white/10 p-4 text-left transition hover:bg-white/15 active:scale-[0.98]"
   >
-    <p className="text-xs text-slate-300">
-      Créditos
-    </p>
-
-    <p className="mt-1 text-sm font-bold">
+    <p className="text-xs text-slate-300">Créditos</p>
+    <p className="mt-1 text-lg font-bold">
       {formatMoney(totalLoansForMonth)}
     </p>
-
-    <p className="mt-1 text-[10px] text-slate-400">
+    <p className="mt-2 text-[11px] text-slate-400">
       Ver detalle →
     </p>
   </button>
-
 </div>
             </div>
 
@@ -2787,6 +2920,184 @@ if (!hasEnteredApp) {
   </label>
 </div>
     </div>
+
+
+{/* ----- Ingresos ----- */}
+
+<div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+
+  <button
+    type="button"
+    onClick={() =>
+      setOpenBudgetSection((current) =>
+        current === "income" ? null : "income"
+      )
+    }
+    className="flex w-full items-center justify-between gap-3 text-left"
+  >
+    <div>
+      <h3 className="font-bold text-slate-900">
+        Ingresos
+      </h3>
+
+      <p className="mt-1 text-sm text-slate-500">
+        {activeIncomes.length}{" "}
+        {activeIncomes.length === 1
+          ? "ingreso registrado"
+          : "ingresos registrados"}
+      </p>
+
+      <p className="mt-2 text-lg font-bold text-slate-900">
+        {formatMoney(totalExpectedIncome)}
+      </p>
+
+      <p className="text-xs text-slate-500">
+        Total previsto del mes
+      </p>
+    </div>
+
+    {openBudgetSection === "income" ? (
+      <ChevronUp size={20} />
+    ) : (
+      <ChevronDown size={20} />
+    )}
+  </button>
+
+  {openBudgetSection === "income" && (
+    <div className="mt-4">
+
+      <button
+  type="button"
+  onClick={() =>
+    setShowIncomeForm(
+      !showIncomeForm
+    )
+  }
+  className="w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+>
+  {showIncomeForm
+    ? "Cerrar formulario"
+    : "+ Nuevo ingreso"}
+</button>
+
+{showIncomeForm && (
+  <form
+    onSubmit={saveIncome}
+    className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+  >
+    <label className="block">
+      <span className="text-sm font-semibold text-slate-700">
+        Descripción
+      </span>
+
+      <input
+        type="text"
+        value={incomeDescription}
+        onChange={(event) => {
+          setIncomeDescription(
+            event.target.value
+          );
+          setIncomeError("");
+        }}
+        placeholder="Ej: Sueldo"
+        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+      />
+    </label>
+
+    <label className="mt-3 block">
+      <span className="text-sm font-semibold text-slate-700">
+        Monto previsto
+      </span>
+
+      <input
+        type="number"
+        min="0"
+        step="1"
+        value={incomeExpectedAmount}
+        onChange={(event) => {
+          setIncomeExpectedAmount(
+            event.target.value
+          );
+          setIncomeError("");
+        }}
+        placeholder="Ej: 2500000"
+        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+      />
+    </label>
+
+    <label className="mt-3 block">
+      <span className="text-sm font-semibold text-slate-700">
+        Monto real
+      </span>
+
+      <input
+        type="number"
+        min="0"
+        step="1"
+        value={incomeActualAmount}
+        onChange={(event) => {
+          setIncomeActualAmount(
+            event.target.value
+          );
+          setIncomeError("");
+        }}
+        placeholder="Opcional"
+        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+      />
+
+      <p className="mt-1 text-xs text-slate-500">
+        Podés dejarlo vacío y completarlo después.
+      </p>
+    </label>
+
+    {incomeError && (
+      <p className="mt-3 text-sm font-medium text-red-600">
+        {incomeError}
+      </p>
+    )}
+
+    <button
+      type="submit"
+      className="mt-4 w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+    >
+      Guardar ingreso
+    </button>
+  </form>
+)}
+
+
+      {activeIncomes.length === 0 ? (
+        <div className="rounded-2xl bg-slate-50 p-4">
+          <p className="text-sm text-slate-500">
+            Todavía no tenés ingresos cargados para{" "}
+            {formatMonth(selectedMonth)}.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {activeIncomes.map((income) => (
+            <div
+              key={income.id}
+              className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-3"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-700">
+                  {income.description}
+                </p>
+              </div>
+
+              <p className="shrink-0 text-sm font-bold text-slate-900">
+                {formatMoney(income.expectedAmount)}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )}
+
+</div>
+
 
 {/* ----- Vista Presupuesto -Gastos Fijos ----- */}
 
