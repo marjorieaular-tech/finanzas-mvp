@@ -6,6 +6,11 @@ import { useState, type FormEvent } from "react";
 import Dexie, { type Table } from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
+  Home,
+  WalletCards,
+  CreditCard,
+  Landmark,
+  ChartNoAxesCombined,
   Check,
   ChevronDown,
   ChevronUp,
@@ -13,6 +18,8 @@ import {
   Pencil,
   Archive,
   PartyPopper,
+  Plus,
+  Settings2,
   Trash2,
   X,
 } from "lucide-react";
@@ -34,6 +41,14 @@ import {
 } from "@dnd-kit/sortable";
 
 import { CSS } from "@dnd-kit/utilities";
+
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+} from "recharts";
 
 // ======================================================
 // TIPOS Y MODELOS DE DATOS
@@ -150,6 +165,15 @@ function normalizeConceptName(name: string) {
     .toLocaleLowerCase("es");
 }
 
+function normalizeCategoryName(name: string) {
+  return name
+    .trim()
+    .replace(/\s+/g, " ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("es");
+}
+
 function getCurrentMonth() {
   const today = new Date();
 
@@ -261,9 +285,12 @@ const DEFAULT_EXPENSE_CATEGORIES = [
 
 function CardForm({
   expenseCategories,
+  onClose,
 }: {
   expenseCategories: string[];
+  onClose: () => void;
 }) {
+
   const [date, setDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
@@ -394,10 +421,34 @@ function CardForm({
   }
 
   return (
+
+  
     <form
       onSubmit={handleSubmit}
       className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
     >
+
+      
+<div className="mb-4 flex items-center justify-between gap-3">
+  <div>
+    <h2 className="text-lg font-bold text-slate-900">
+      Nueva compra
+    </h2>
+
+    <p className="text-sm text-slate-500">
+      Registrá una compra o suscripción.
+    </p>
+  </div>
+
+  <button
+  type="button"
+  onClick={onClose}
+  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600"
+>
+  Cerrar
+</button>
+</div>
+
       <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
         Nueva compra
       </p>
@@ -674,7 +725,11 @@ function CardForm({
 
 // --- Formulario de créditos ---
 
-function LoanForm() {
+function LoanForm({
+  onClose,
+}: {
+  onClose: () => void;
+}) {
   const [bank, setBank] = useState("");
   const [description, setDescription] = useState("");
   const [initialAmount, setInitialAmount] = useState("");
@@ -760,7 +815,27 @@ function LoanForm() {
     <form
       onSubmit={handleSubmit}
       className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-    >
+          >
+            <div className="mb-4 flex items-center justify-between gap-3">
+  <div>
+    <h2 className="text-lg font-bold text-slate-900">
+      Nuevo crédito
+    </h2>
+
+    <p className="text-sm text-slate-500">
+      Registrá un préstamo o compromiso financiado.
+    </p>
+  </div>
+
+  <button
+    type="button"
+    onClick={onClose}
+    className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600"
+  >
+    Cerrar
+  </button>
+</div>
+
       <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
         Nuevo crédito
       </p>
@@ -1159,6 +1234,19 @@ function SortableBudgetConcept({
   );
 }
 
+// --- Tarjeta de colores para categorías de tarjetas de crédito ---
+
+const CARD_CATEGORY_COLORS = [
+  "#0A59FF",
+  "#31C7F2",
+  "#37E2B4",
+  "#7C8CFF",
+  "#5DE0E6",
+  "#48C9A9",
+  "#6384FF",
+  "#8EDDF2",
+];
+
 // ======================================================
 // APP PRINCIPAL
 // ======================================================
@@ -1277,6 +1365,25 @@ const [showArchivedVariableConcepts, setShowArchivedVariableConcepts] =
 
 const [expenseEditError, setExpenseEditError] =
   useState("");
+
+const [openBudgetSection, setOpenBudgetSection] =
+  useState<"fixed" | "variable" | null>(null);
+
+  const [categorySearch, setCategorySearch] =
+  useState("");
+
+const [selectedCategoryName, setSelectedCategoryName] =
+  useState<string | null>(null);
+
+const [categoryRenameInput, setCategoryRenameInput] =
+  useState("");
+
+const [categoryRenameError, setCategoryRenameError] =
+  useState("");
+
+  const [showCardTools, setShowCardTools] =
+  useState(false);
+  
 
 // ======================================================
 // APP - LECTURA DE DATOS / INDEXEDDB
@@ -1463,6 +1570,30 @@ const variableBudgetTotal = variableBudgetConcepts.reduce(
     0
   );
 
+  const cardCategoryTotals = Array.from(
+  expensesForMonth.reduce((map, item) => {
+    const category =
+      item.expense.category?.trim() ||
+      "Sin categoría";
+
+    const currentTotal =
+      map.get(category) ?? 0;
+
+    map.set(
+      category,
+      currentTotal +
+        item.expense.monthlyAmount
+    );
+
+    return map;
+  }, new Map<string, number>())
+)
+  .map(([name, value]) => ({
+    name,
+    value,
+  }))
+  .sort((a, b) => b.value - a.value);
+
   const totalLoansForMonth = loansForMonth.reduce(
     (total, item) =>
       total + item.loan.monthlyPayment,
@@ -1582,6 +1713,34 @@ const expenseCategories = Array.from(
 ).sort((a, b) =>
   a.localeCompare(b, "es")
 );
+
+const categoryUsage = Array.from(
+  expenses.reduce((map, expense) => {
+    const category =
+      expense.category?.trim() || "Sin categoría";
+
+    map.set(
+      category,
+      (map.get(category) ?? 0) + 1
+    );
+
+    return map;
+  }, new Map<string, number>())
+)
+  .map(([name, count]) => ({
+    name,
+    count,
+  }))
+  .sort((a, b) =>
+    a.name.localeCompare(b.name, "es")
+  );
+
+const filteredCategoryUsage =
+  categoryUsage.filter((category) =>
+    normalizeCategoryName(category.name).includes(
+      normalizeCategoryName(categorySearch)
+    )
+  );
 
 
 // ======================================================
@@ -1943,6 +2102,49 @@ async function saveExpenseEdits(
   setSelectedExpenseId(null);
 }
 
+async function renameExpenseCategory() {
+  if (!selectedCategoryName) return;
+
+  const newName = categoryRenameInput
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (!newName) {
+    setCategoryRenameError(
+      "Ingresá el nuevo nombre de la categoría."
+    );
+    return;
+  }
+
+  const selectedNormalized =
+    normalizeCategoryName(selectedCategoryName);
+
+  const expensesToUpdate = expenses.filter(
+    (expense) =>
+      normalizeCategoryName(
+        expense.category || "Sin categoría"
+      ) === selectedNormalized
+  );
+
+  await db.transaction(
+    "rw",
+    db.creditCardExpenses,
+    async () => {
+      for (const expense of expensesToUpdate) {
+        await db.creditCardExpenses.update(
+          expense.id,
+          {
+            category: newName,
+          }
+        );
+      }
+    }
+  );
+
+  setSelectedCategoryName(null);
+  setCategoryRenameInput("");
+  setCategoryRenameError("");
+}
 
 // ======================================================
 // PRESUPUESTO - GASTOS FIJOS (eliminar concepto)
@@ -2350,83 +2552,103 @@ if (!hasEnteredApp) {
 {/* ==================== RETURN PRINCIPAL DE APP ¿? ==================== */}
 
   return (
-    <main className="min-h-screen bg-slate-50 px-3 py-4 text-slate-900 sm:px-6">
+   <main className="min-h-screen bg-slate-50 px-3 pt-4 pb-20 text-slate-900 sm:px-6">
       <div className="mx-auto max-w-4xl space-y-4">
+        {(activeView === "cards" || activeView === "loans") && (
+  <button
+    type="button"
+    onClick={() => {
+      if (activeView === "cards") {
+        setShowCardForm(true);
+      }
+
+      if (activeView === "loans") {
+        setShowLoanForm(true);
+      }
+    }}
+    className="fixed bottom-24 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-[#0A59FF] text-white shadow-xl transition active:scale-95"
+    aria-label={
+      activeView === "cards"
+        ? "Nueva compra"
+        : "Nuevo crédito"
+    }
+  >
+    <Plus size={28} strokeWidth={2.2} />
+  </button>
+)}
         
         {/* ==================== NAVEGACIÓN ==================== */}
 
-        <nav className="sticky top-2 z-20 rounded-2xl border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur">
-          <div className="grid grid-cols-5 gap-1">
+        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur">
+  <div className="mx-auto grid max-w-4xl grid-cols-5 px-2 py-2">
 
-            {/* ==================== BOTÓN RESUMEN ==================== */}
+    <button
+      type="button"
+      onClick={() => setActiveView("summary")}
+      className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-[10px] font-medium transition ${
+        activeView === "summary"
+          ? "text-slate-900"
+          : "text-slate-400"
+      }`}
+    >
+      <Home size={20} strokeWidth={2} />
+      <span>Resumen</span>
+    </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveView("summary")}
-              className={`rounded-xl px-1 py-3 text-[11px] sm:px-2 sm:text-sm font-semibold ${
-                activeView === "summary"
-                  ? "bg-slate-900 text-white"
-                  : "text-slate-500 hover:bg-slate-100"
-              }`}
-            >
-              Resumen
-            </button>
+    <button
+      type="button"
+      onClick={() => setActiveView("budget")}
+      className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-[10px] font-medium transition ${
+        activeView === "budget"
+          ? "text-slate-900"
+          : "text-slate-400"
+      }`}
+    >
+      <WalletCards size={20} strokeWidth={2} />
+      <span>Presup.</span>
+    </button>
 
+    <button
+      type="button"
+      onClick={() => setActiveView("cards")}
+      className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-[10px] font-medium transition ${
+        activeView === "cards"
+          ? "text-slate-900"
+          : "text-slate-400"
+      }`}
+    >
+      <CreditCard size={20} strokeWidth={2} />
+      <span>Tarjetas</span>
+    </button>
 
-            {/* ==================== BOTÓN PRESUPUESTO ==================== */}
-            <button
-              type="button"
-              onClick={() => setActiveView("budget")}
-              className={`rounded-xl px-1 py-3 text-[11px] sm:px-2 sm:text-sm font-semibold sm:px-2 sm:text-sm ${
-              activeView === "budget"
-                ? "bg-slate-900 text-white"
-                : "text-slate-500 hover:bg-slate-100"
-              }`}
->
-              Presupuesto
-              </button>
+    <button
+      type="button"
+      onClick={() => setActiveView("loans")}
+      className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-[10px] font-medium transition ${
+        activeView === "loans"
+          ? "text-slate-900"
+          : "text-slate-400"
+      }`}
+    >
+      <Landmark size={20} strokeWidth={2} />
+      <span>Créditos</span>
+    </button>
 
-            {/* ==================== BOTÓN TARJETAS ==================== */}
-            <button
-              type="button"
-              onClick={() => setActiveView("cards")}
-              className={`rounded-xl px-1 py-3 text-[11px] sm:px-2 sm:text-sm font-semibold ${
-                activeView === "cards"
-                  ? "bg-slate-900 text-white"
-                  : "text-slate-500 hover:bg-slate-100"
-              }`}
-            >
-              Tarjetas
-            </button>
+    <button
+      type="button"
+      onClick={() => setActiveView("projection")}
+      className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-[10px] font-medium transition ${
+        activeView === "projection"
+          ? "text-slate-900"
+          : "text-slate-400"
+      }`}
+    >
+      <ChartNoAxesCombined size={20} strokeWidth={2} />
+      <span>Proy.</span>
+    </button>
 
-
-            {/* ==================== BOTÓN CRÉDITOS ==================== */}
-            <button
-              type="button"
-              onClick={() => setActiveView("loans")}
-              className={`rounded-xl px-1 py-3 text-[11px] sm:px-2 sm:text-sm font-semibold ${
-                activeView === "loans"
-                  ? "bg-slate-900 text-white"
-                  : "text-slate-500 hover:bg-slate-100"
-              }`}
-            >
-              Créditos
-            </button>
-
-            {/* ==================== BOTÓN PROYECCIÓN ==================== */}
-            <button
-              type="button"
-              onClick={() => setActiveView("projection")}
-              className={`rounded-xl px-1 py-3 text-[11px] sm:px-2 sm:text-sm font-semibold sm:text-sm ${
-                activeView === "projection"
-                  ? "bg-slate-900 text-white"
-                  : "text-slate-500 hover:bg-slate-100"
-              }`}
->
-               Proyección
-              </button>
-          </div>
-        </nav>
+  </div>
+</nav>
 
  {/* ==================== RESUMEN ==================== */}
 
@@ -2488,10 +2710,6 @@ if (!hasEnteredApp) {
   >
     <p className="text-xs text-slate-300">
       Tarjetas
-    </p>
-
-    <p className="mt-1 text-sm font-bold">
-      {formatMoney(totalForMonth)}
     </p>
 
     <p className="mt-1 text-[10px] text-slate-400">
@@ -2573,7 +2791,17 @@ if (!hasEnteredApp) {
 {/* ----- Vista Presupuesto -Gastos Fijos ----- */}
 
     <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-  <div className="flex items-center justify-between gap-3">
+
+  {/* CABECERA COLAPSABLE - GASTOS FIJOS */}
+  <button
+    type="button"
+    onClick={() =>
+      setOpenBudgetSection((current) =>
+        current === "fixed" ? null : "fixed"
+      )
+    }
+    className="flex w-full items-center justify-between gap-3 text-left"
+  >
     <div>
       <h3 className="font-bold text-slate-900">
         Gastos fijos
@@ -2587,259 +2815,303 @@ if (!hasEnteredApp) {
       </p>
 
       <p className="mt-2 text-lg font-bold text-slate-900">
-  {formatMoney(fixedBudgetTotal)}
-</p>
+        {formatMoney(fixedBudgetTotal)}
+      </p>
 
-<p className="text-xs text-slate-500">
-  Total presupuestado del mes
-</p>
-    </div>
-
-    <button
-      type="button"
-      onClick={() =>
-        setShowFixedConceptForm(!showFixedConceptForm)
-      }
-      className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
-    >
-      {showFixedConceptForm
-        ? "Cerrar"
-        : "+ Nuevo concepto"}
-    </button>
-  </div>
-
-  {showFixedConceptForm && (
-    <form
-      onSubmit={saveFixedConcept}
-      className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4"
-    >
-      <label className="block">
-  <span className="text-sm font-semibold text-slate-700">
-    Nombre del gasto fijo
-  </span>
-
-  <input
-    type="text"
-    value={fixedConceptName}
-    onChange={(event) => {
-      setFixedConceptName(event.target.value);
-      setFixedConceptError("");
-    }}
-    placeholder="Ej: Alquiler"
-    className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
-  />
-</label>
-
-<label className="mt-3 block">
-  <span className="text-sm font-semibold text-slate-700">
-    Monto presupuestado
-  </span>
-
-  <input
-    type="number"
-    min="0"
-    step="1"
-    value={fixedConceptAmount}
-    onChange={(event) => {
-      setFixedConceptAmount(event.target.value);
-      setFixedConceptError("");
-    }}
-    placeholder="Ej: 610000"
-    className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
-  />
-</label>
-
-{fixedConceptError && (
-  <p className="mt-2 text-sm font-medium text-red-600">
-    {fixedConceptError}
-  </p>
-)}
-
-      <button
-        type="submit"
-        className="mt-3 w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
-      >
-        Guardar concepto
-      </button>
-    </form>
-  )}
-
-{fixedBudgetConcepts.length > 0 && (
-  <DndContext
-    sensors={budgetDragSensors}
-    collisionDetection={closestCenter}
-    onDragEnd={handleFixedConceptDragEnd}
-  >
-    <SortableContext
-      items={fixedBudgetConcepts.map(
-        (concept) => concept.id
-      )}
-      strategy={verticalListSortingStrategy}
-    >
-      <div className="mt-4 space-y-2">
-        {fixedBudgetConcepts.map((concept) => (
-          <SortableBudgetConcept
-            key={concept.id}
-            concept={concept}
-            amount={
-              monthlyBudgetAmounts.find(
-              (item) => item.conceptId === concept.id
-            )?.budgetedAmount ?? 0
-       }
-      onEdit={() =>
-  setSelectedBudgetConceptId(concept.id)
-}
-/>
-        ))}
-      </div>
-    </SortableContext>
-  </DndContext>
-)}
-
-{editingBudgetConceptId && (
-  <form
-    onSubmit={(event) => {
-      const concept = fixedBudgetConcepts.find(
-        (item) =>
-          item.id === editingBudgetConceptId
-      );
-
-      if (concept) {
-        saveBudgetAmount(event, concept);
-      }
-    }}
-    className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
-  >
-    <label className="block">
-  <span className="text-sm font-semibold text-slate-700">
-    Nombre del gasto
-  </span>
-
-  <input
-    type="text"
-    value={editingConceptName}
-    onChange={(event) => {
-      setEditingConceptName(
-        event.target.value
-      );
-      setBudgetEditError("");
-    }}
-    className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
-  />
-</label>
-
-    <p className="mt-1 text-xs text-slate-500">
-      {formatMonth(selectedMonth)}
-    </p>
-
-    <input
-      type="number"
-      min="0"
-      step="1"
-      value={budgetAmountInput}
-      onChange={(event) =>
-        setBudgetAmountInput(event.target.value)
-      }
-      placeholder="Monto presupuestado"
-      autoFocus
-      className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
-    />
-
-{budgetEditError && (
-  <p className="mt-3 text-sm font-medium text-red-600">
-    {budgetEditError}
-  </p>
-)}
-
-    <div className="mt-3 grid grid-cols-2 gap-2">
-      <button
-        type="button"
-        onClick={() => {
-          setEditingBudgetConceptId(null);
-          setBudgetAmountInput("");
-          setEditingConceptName("");
-          setBudgetEditError("");
-        }}
-        className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700"
-      >
-        Cancelar
-      </button>
-
-      <button
-        type="submit"
-        className="rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
-      >
-        Guardar cambios
-      </button>
-    </div>
-  </form>
-)}
-
-  {fixedBudgetConcepts.length === 0 && (
-    <div className="mt-4 rounded-2xl bg-slate-50 p-4">
-      <p className="text-sm text-slate-500">
-        Todavía no tenés gastos fijos cargados.
+      <p className="text-xs text-slate-500">
+        Total presupuestado del mes
       </p>
     </div>
-  )}
 
-{archivedFixedBudgetConcepts.length > 0 && (
-  <div className="mt-4 border-t border-slate-200 pt-3">
-    <button
-      type="button"
-      onClick={() =>
-        setShowArchivedFixedConcepts(
-          !showArchivedFixedConcepts
-        )
-      }
-      className="flex w-full items-center justify-between py-2 text-sm font-semibold text-slate-600"
-    >
-      <span>
-        Archivados ({archivedFixedBudgetConcepts.length})
-      </span>
-
-      {showArchivedFixedConcepts ? (
-        <ChevronUp size={18} />
-      ) : (
-        <ChevronDown size={18} />
-      )}
-    </button>
-
-    {showArchivedFixedConcepts && (
-      <div className="mt-2 space-y-2">
-        {archivedFixedBudgetConcepts.map(
-          (concept) => (
-            <div
-              key={concept.id}
-              className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2"
-            >
-              <span className="text-sm font-medium text-slate-700">
-                {concept.name}
-              </span>
-
-              <button
-                type="button"
-                onClick={() =>
-                  reactivateFixedConcept(concept)
-                }
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
-              >
-                Reactivar
-              </button>
-            </div>
-          )
-        )}
-      </div>
+    {openBudgetSection === "fixed" ? (
+      <ChevronUp size={20} />
+    ) : (
+      <ChevronDown size={20} />
     )}
-  </div>
-)}
+  </button>
+
+
+  {/* CONTENIDO DESPLEGABLE - GASTOS FIJOS */}
+  {openBudgetSection === "fixed" && (
+    <div className="mt-4">
+
+      {/* NUEVO CONCEPTO */}
+      <button
+        type="button"
+        onClick={() =>
+          setShowFixedConceptForm(!showFixedConceptForm)
+        }
+        className="w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+      >
+        {showFixedConceptForm
+          ? "Cerrar formulario"
+          : "+ Nuevo concepto"}
+      </button>
+
+
+      {/* FORMULARIO NUEVO CONCEPTO */}
+      {showFixedConceptForm && (
+        <form
+          onSubmit={saveFixedConcept}
+          className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+        >
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">
+              Nombre del gasto fijo
+            </span>
+
+            <input
+              type="text"
+              value={fixedConceptName}
+              onChange={(event) => {
+                setFixedConceptName(event.target.value);
+                setFixedConceptError("");
+              }}
+              placeholder="Ej: Alquiler"
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+            />
+          </label>
+
+          <label className="mt-3 block">
+            <span className="text-sm font-semibold text-slate-700">
+              Monto presupuestado
+            </span>
+
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={fixedConceptAmount}
+              onChange={(event) => {
+                setFixedConceptAmount(event.target.value);
+                setFixedConceptError("");
+              }}
+              placeholder="Ej: 610000"
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+            />
+          </label>
+
+          {fixedConceptError && (
+            <p className="mt-2 text-sm font-medium text-red-600">
+              {fixedConceptError}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            className="mt-3 w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+          >
+            Guardar concepto
+          </button>
+        </form>
+      )}
+
+
+      {/* LISTADO DE GASTOS FIJOS */}
+      {fixedBudgetConcepts.length > 0 && (
+        <DndContext
+          sensors={budgetDragSensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleFixedConceptDragEnd}
+        >
+          <SortableContext
+            items={fixedBudgetConcepts.map(
+              (concept) => concept.id
+            )}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="mt-4 space-y-2">
+              {fixedBudgetConcepts.map((concept) => (
+                <SortableBudgetConcept
+                  key={concept.id}
+                  concept={concept}
+                  amount={
+                    monthlyBudgetAmounts.find(
+                      (item) =>
+                        item.conceptId === concept.id
+                    )?.budgetedAmount ?? 0
+                  }
+                  onEdit={() =>
+                    setSelectedBudgetConceptId(
+                      concept.id
+                    )
+                  }
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      )}
+
+
+      {/* EDITAR GASTO FIJO */}
+      {editingBudgetConceptId && (
+        <form
+          onSubmit={(event) => {
+            const concept =
+              fixedBudgetConcepts.find(
+                (item) =>
+                  item.id === editingBudgetConceptId
+              );
+
+            if (concept) {
+              saveBudgetAmount(event, concept);
+            }
+          }}
+          className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+        >
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">
+              Nombre del gasto
+            </span>
+
+            <input
+              type="text"
+              value={editingConceptName}
+              onChange={(event) => {
+                setEditingConceptName(
+                  event.target.value
+                );
+                setBudgetEditError("");
+              }}
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+            />
+          </label>
+
+          <p className="mt-1 text-xs text-slate-500">
+            {formatMonth(selectedMonth)}
+          </p>
+
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={budgetAmountInput}
+            onChange={(event) =>
+              setBudgetAmountInput(
+                event.target.value
+              )
+            }
+            placeholder="Monto presupuestado"
+            autoFocus
+            className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+          />
+
+          {budgetEditError && (
+            <p className="mt-3 text-sm font-medium text-red-600">
+              {budgetEditError}
+            </p>
+          )}
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setEditingBudgetConceptId(null);
+                setBudgetAmountInput("");
+                setEditingConceptName("");
+                setBudgetEditError("");
+              }}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700"
+            >
+              Cancelar
+            </button>
+
+            <button
+              type="submit"
+              className="rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+            >
+              Guardar cambios
+            </button>
+          </div>
+        </form>
+      )}
+
+
+      {/* SIN GASTOS FIJOS */}
+      {fixedBudgetConcepts.length === 0 && (
+        <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+          <p className="text-sm text-slate-500">
+            Todavía no tenés gastos fijos cargados.
+          </p>
+        </div>
+      )}
+
+
+      {/* ARCHIVADOS */}
+      {archivedFixedBudgetConcepts.length > 0 && (
+        <div className="mt-4 border-t border-slate-200 pt-3">
+          <button
+            type="button"
+            onClick={() =>
+              setShowArchivedFixedConcepts(
+                !showArchivedFixedConcepts
+              )
+            }
+            className="flex w-full items-center justify-between py-2 text-sm font-semibold text-slate-600"
+          >
+            <span>
+              Archivados (
+              {archivedFixedBudgetConcepts.length})
+            </span>
+
+            {showArchivedFixedConcepts ? (
+              <ChevronUp size={18} />
+            ) : (
+              <ChevronDown size={18} />
+            )}
+          </button>
+
+          {showArchivedFixedConcepts && (
+            <div className="mt-2 space-y-2">
+              {archivedFixedBudgetConcepts.map(
+                (concept) => (
+                  <div
+                    key={concept.id}
+                    className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2"
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      {concept.name}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        reactivateFixedConcept(
+                          concept
+                        )
+                      }
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                    >
+                      Reactivar
+                    </button>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+    </div>
+  )}
 
 </div>
 
 {/* ----- Vista Presupuesto -Gastos Variables ----- */}
 
 <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-  <div className="flex items-center justify-between gap-3">
+
+  {/* CABECERA COLAPSABLE - GASTOS VARIABLES */}
+  <button
+    type="button"
+    onClick={() =>
+      setOpenBudgetSection((current) =>
+        current === "variable" ? null : "variable"
+      )
+    }
+    className="flex w-full items-center justify-between gap-3 text-left"
+  >
     <div>
       <h3 className="font-bold text-slate-900">
         Gastos variables
@@ -2860,176 +3132,204 @@ if (!hasEnteredApp) {
         Total presupuestado del mes
       </p>
     </div>
-    <button
-  type="button"
-  onClick={() =>
-    setShowVariableConceptForm(
-      !showVariableConceptForm
-    )
-  }
-  className="shrink-0 rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
->
-  {showVariableConceptForm
-    ? "Cerrar"
-    : "+ Nuevo concepto"}
-</button>
-  </div>
 
-  {showVariableConceptForm && (
-  <form
-    onSubmit={saveVariableConcept}
-    className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4"
-  >
-    <label className="block">
-      <span className="text-sm font-semibold text-slate-700">
-        Nombre del gasto variable
-      </span>
-
-      <input
-        type="text"
-        value={variableConceptName}
-        onChange={(event) => {
-          setVariableConceptName(
-            event.target.value
-          );
-          setVariableConceptError("");
-        }}
-        placeholder="Ej: Mercado"
-        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
-      />
-    </label>
-
-    <label className="mt-3 block">
-      <span className="text-sm font-semibold text-slate-700">
-        Monto presupuestado
-      </span>
-
-      <input
-        type="number"
-        min="0"
-        step="1"
-        value={variableConceptAmount}
-        onChange={(event) => {
-          setVariableConceptAmount(
-            event.target.value
-          );
-          setVariableConceptError("");
-        }}
-        placeholder="Ej: 350000"
-        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
-      />
-    </label>
-
-    {variableConceptError && (
-      <p className="mt-2 text-sm font-medium text-red-600">
-        {variableConceptError}
-      </p>
+    {openBudgetSection === "variable" ? (
+      <ChevronUp size={20} />
+    ) : (
+      <ChevronDown size={20} />
     )}
+  </button>
 
-    <button
-      type="submit"
-      className="mt-3 w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
-    >
-      Guardar concepto
-    </button>
-  </form>
-)}
 
-{variableBudgetConcepts.length > 0 && (
-  <DndContext
-    sensors={budgetDragSensors}
-    collisionDetection={closestCenter}
-    onDragEnd={handleVariableConceptDragEnd}
-  >
-    <SortableContext
-      items={variableBudgetConcepts.map(
-        (concept) => concept.id
+  {/* CONTENIDO DESPLEGABLE - GASTOS VARIABLES */}
+  {openBudgetSection === "variable" && (
+    <div className="mt-4">
+
+      {/* NUEVO CONCEPTO */}
+      <button
+        type="button"
+        onClick={() =>
+          setShowVariableConceptForm(
+            !showVariableConceptForm
+          )
+        }
+        className="w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+      >
+        {showVariableConceptForm
+          ? "Cerrar formulario"
+          : "+ Nuevo concepto"}
+      </button>
+
+
+      {/* FORMULARIO NUEVO CONCEPTO */}
+      {showVariableConceptForm && (
+        <form
+          onSubmit={saveVariableConcept}
+          className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+        >
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">
+              Nombre del gasto variable
+            </span>
+
+            <input
+              type="text"
+              value={variableConceptName}
+              onChange={(event) => {
+                setVariableConceptName(
+                  event.target.value
+                );
+                setVariableConceptError("");
+              }}
+              placeholder="Ej: Mercado"
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+            />
+          </label>
+
+          <label className="mt-3 block">
+            <span className="text-sm font-semibold text-slate-700">
+              Monto presupuestado
+            </span>
+
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={variableConceptAmount}
+              onChange={(event) => {
+                setVariableConceptAmount(
+                  event.target.value
+                );
+                setVariableConceptError("");
+              }}
+              placeholder="Ej: 350000"
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
+            />
+          </label>
+
+          {variableConceptError && (
+            <p className="mt-2 text-sm font-medium text-red-600">
+              {variableConceptError}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            className="mt-3 w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+          >
+            Guardar concepto
+          </button>
+        </form>
       )}
-      strategy={verticalListSortingStrategy}
-    >
-      <div className="mt-4 space-y-2">
-        {variableBudgetConcepts.map((concept) => (
-          <SortableBudgetConcept
-            key={concept.id}
-            concept={concept}
-            amount={
-              monthlyBudgetAmounts.find(
-                (item) =>
-                  item.conceptId === concept.id
-              )?.budgetedAmount ?? 0
-            }
-            onEdit={() =>
-              setSelectedVariableConceptId(
-                concept.id
+
+
+      {/* LISTADO DE GASTOS VARIABLES */}
+      {variableBudgetConcepts.length > 0 && (
+        <DndContext
+          sensors={budgetDragSensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleVariableConceptDragEnd}
+        >
+          <SortableContext
+            items={variableBudgetConcepts.map(
+              (concept) => concept.id
+            )}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="mt-4 space-y-2">
+              {variableBudgetConcepts.map(
+                (concept) => (
+                  <SortableBudgetConcept
+                    key={concept.id}
+                    concept={concept}
+                    amount={
+                      monthlyBudgetAmounts.find(
+                        (item) =>
+                          item.conceptId ===
+                          concept.id
+                      )?.budgetedAmount ?? 0
+                    }
+                    onEdit={() =>
+                      setSelectedVariableConceptId(
+                        concept.id
+                      )
+                    }
+                  />
+                )
+              )}
+            </div>
+          </SortableContext>
+        </DndContext>
+      )}
+
+
+      {/* SIN GASTOS VARIABLES */}
+      {variableBudgetConcepts.length === 0 && (
+        <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+          <p className="text-sm text-slate-500">
+            Todavía no tenés gastos variables cargados.
+          </p>
+        </div>
+      )}
+
+
+      {/* ARCHIVADOS */}
+      {archivedVariableBudgetConcepts.length > 0 && (
+        <div className="mt-4 border-t border-slate-200 pt-3">
+          <button
+            type="button"
+            onClick={() =>
+              setShowArchivedVariableConcepts(
+                !showArchivedVariableConcepts
               )
             }
-          />
-        ))}
-      </div>
-    </SortableContext>
-  </DndContext>
-)}
+            className="flex w-full items-center justify-between py-2 text-sm font-semibold text-slate-600"
+          >
+            <span>
+              Archivados (
+              {archivedVariableBudgetConcepts.length})
+            </span>
 
-  {variableBudgetConcepts.length === 0 && (
-    <div className="mt-4 rounded-2xl bg-slate-50 p-4">
-      <p className="text-sm text-slate-500">
-        Todavía no tenés gastos variables cargados.
-      </p>
+            {showArchivedVariableConcepts ? (
+              <ChevronUp size={18} />
+            ) : (
+              <ChevronDown size={18} />
+            )}
+          </button>
+
+          {showArchivedVariableConcepts && (
+            <div className="mt-2 space-y-2">
+              {archivedVariableBudgetConcepts.map(
+                (concept) => (
+                  <div
+                    key={concept.id}
+                    className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2"
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      {concept.name}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        reactivateVariableConcept(
+                          concept
+                        )
+                      }
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                    >
+                      Reactivar
+                    </button>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
     </div>
   )}
-
-  {/* ----- Gastos variables archivados ----- */}
-{archivedVariableBudgetConcepts.length > 0 && (
-  <div className="mt-4 border-t border-slate-200 pt-3">
-    <button
-      type="button"
-      onClick={() =>
-        setShowArchivedVariableConcepts(
-          !showArchivedVariableConcepts
-        )
-      }
-      className="flex w-full items-center justify-between py-2 text-sm font-semibold text-slate-600"
-    >
-      <span>
-        Archivados ({archivedVariableBudgetConcepts.length})
-      </span>
-
-      {showArchivedVariableConcepts ? (
-        <ChevronUp size={18} />
-      ) : (
-        <ChevronDown size={18} />
-      )}
-    </button>
-
-    {showArchivedVariableConcepts && (
-      <div className="mt-2 space-y-2">
-        {archivedVariableBudgetConcepts.map(
-          (concept) => (
-            <div
-              key={concept.id}
-              className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2"
-            >
-              <span className="text-sm font-medium text-slate-700">
-                {concept.name}
-              </span>
-
-              <button
-                type="button"
-                onClick={() =>
-                  reactivateVariableConcept(concept)
-                }
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
-              >
-                Reactivar
-              </button>
-            </div>
-          )
-        )}
-      </div>
-    )}
-  </div>
-)}
-
 
 </div>
 
@@ -3391,29 +3691,27 @@ if (!hasEnteredApp) {
         {activeView === "cards" && (
           <>
             <section className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-bold">
-                    Tarjetas
-                  </h2>
+            <div className="flex items-center justify-between gap-3">
+  <div>
+    <h2 className="text-xl font-bold">
+      Tarjetas
+    </h2>
 
-                  <p className="text-sm text-slate-500">
-                    Compras y cuotas activas.
-                  </p>
-                </div>
+    <p className="text-sm text-slate-500">
+      Compras y cuotas activas.
+    </p>
+  </div>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowCardForm((current) => !current)
-                  }
-                  className="shrink-0 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
-                >
-                  {showCardForm
-                    ? "Cerrar"
-                    : "+ Nueva compra"}
-                </button>
-              </div>
+  <button
+    type="button"
+    onClick={() => setShowCardTools(true)}
+    className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+    aria-label="Herramientas de tarjetas"
+    title="Herramientas"
+  >
+    <Settings2 size={20} />
+  </button>
+</div>
 
 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
   <label className="block">
@@ -3431,22 +3729,25 @@ if (!hasEnteredApp) {
     />
   </label>
 
-  <div className="mt-3 flex items-end justify-between gap-3">
-    <div>
-      <p className="text-xs text-slate-500">
-        Total de tarjetas en {formatMonth(selectedMonth)}
-      </p>
+  <div className="mt-3">
+    <p className="text-xs text-slate-500">
+      Total de tarjetas en {formatMonth(selectedMonth)}
+    </p>
 
-      <p className="mt-1 text-xl font-bold text-slate-900">
-        {formatMoney(totalForMonth)}
-      </p>
-    </div>
+    <p className="mt-1 text-xl font-bold text-slate-900">
+      {formatMoney(totalForMonth)}
+    </p>
   </div>
 </div>
+
+{/* ==================== GESTIÓN DE CATEGORÍAS ==================== */}
+
+    
 
              {showCardForm && (
   <CardForm
     expenseCategories={expenseCategories}
+    onClose={() => setShowCardForm(false)}
   />
 )}
             </section>
@@ -3945,12 +4246,311 @@ if (!hasEnteredApp) {
   );
 })()}
 
+</section>
 
-            </section>
+            {/* ==================== DISTRIBUCIÓN POR CATEGORÍA ==================== */}
+<div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+  <div>
+    <h3 className="font-bold text-slate-900">
+      Distribución por categoría
+    </h3>
+
+    <p className="mt-1 text-sm text-slate-500">
+      {formatMonth(selectedMonth)}
+    </p>
+  </div>
+
+  {cardCategoryTotals.length > 0 ? (
+    <>
+      <div className="relative mx-auto mt-4 h-64 w-full">
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+        >
+          <PieChart>
+            <Pie
+              data={cardCategoryTotals}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={65}
+              outerRadius={95}
+              paddingAngle={2}
+              strokeWidth={0}
+            >
+              {cardCategoryTotals.map(
+                (item, index) => (
+                  <Cell
+                    key={item.name}
+                    fill={
+                      CARD_CATEGORY_COLORS[
+                        index %
+                          CARD_CATEGORY_COLORS.length
+                      ]
+                    }
+                  />
+                )
+              )}
+            </Pie>
+
+            <Tooltip
+              formatter={(value) =>
+                formatMoney(Number(value))
+              }
+            />
+          </PieChart>
+        </ResponsiveContainer>
+
+        {/* TOTAL EN EL CENTRO */}
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xs text-slate-500">
+            Total
+          </span>
+
+          <span className="mt-1 text-lg font-bold text-slate-900">
+            {formatMoney(totalForMonth)}
+          </span>
+        </div>
+      </div>
+
+      {/* LEYENDA */}
+      <div className="mt-2 space-y-2">
+        {cardCategoryTotals.map(
+          (category, index) => {
+            const percentage =
+              totalForMonth > 0
+                ? (category.value /
+                    totalForMonth) *
+                  100
+                : 0;
+
+            return (
+              <div
+                key={category.name}
+                className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="h-3 w-3 shrink-0 rounded-full"
+                    style={{
+                      backgroundColor:
+                        CARD_CATEGORY_COLORS[
+                          index %
+                            CARD_CATEGORY_COLORS.length
+                        ],
+                    }}
+                  />
+
+                  <span className="truncate text-sm font-medium text-slate-700">
+                    {category.name}
+                  </span>
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {formatMoney(
+                      category.value
+                    )}
+                  </p>
+
+                  <p className="text-xs text-slate-500">
+                    {percentage.toFixed(1)}%
+                  </p>
+                </div>
+              </div>
+            );
+          }
+        )}
+      </div>
+    </>
+  ) : (
+    <div className="mt-4 rounded-xl bg-slate-50 p-4">
+      <p className="text-sm text-slate-500">
+        No hay gastos de tarjetas para este mes.
+      </p>
+    </div>
+  )}
+</div>
+
+
+{/* ==================== HERRAMIENTA PARA EL CONFIG DE CATEGORIAS (MENÚ)  ==================== */}
+
+{showCardTools && (
+ <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+    <button
+      type="button"
+      aria-label="Cerrar herramientas"
+      onClick={() => setShowCardTools(false)}
+      className="absolute inset-0 bg-slate-900/40"
+    />
+
+    <div className="relative max-h-[72vh] w-full max-w-sm overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-bold text-slate-900">
+            Herramientas
+          </h3>
+
+          <p className="text-sm text-slate-500">
+            Ordená y corregí las categorías de tus compras.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowCardTools(false)}
+          className="rounded-full p-2 text-slate-400 hover:bg-slate-100"
+          aria-label="Cerrar"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      <div className="mt-5">
+  {!selectedCategoryName ? (
+    <>
+        {/* ==================== GESTIÓN DE CATEGORÍAS ==================== */}
+
+  {/* BUSCADOR */}
+   <input
+        type="text"
+        value={categorySearch}
+        onChange={(event) =>
+          setCategorySearch(event.target.value)
+        }
+        placeholder="Buscar categoría..."
+        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-slate-500"
+      />
+
+      <div className="mt-3 space-y-2">
+        {filteredCategoryUsage.map((category) => (
+          <div
+            key={category.name}
+            className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-3"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-slate-700">
+                {category.name}
+              </p>
+
+              <p className="text-xs text-slate-500">
+                {category.count}{" "}
+                {category.count === 1
+                  ? "registro"
+                  : "registros"}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCategoryName(category.name);
+                setCategoryRenameInput(category.name);
+                setCategoryRenameError("");
+              }}
+              className="shrink-0 rounded-full p-2 text-slate-500 hover:bg-white"
+              aria-label={`Renombrar ${category.name}`}
+              title="Renombrar categoría"
+            >
+              <Pencil size={18} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {filteredCategoryUsage.length === 0 && (
+        <p className="mt-4 text-sm text-slate-500">
+          No encontramos categorías con esa búsqueda.
+        </p>
+      )}
+    </>
+  ) : (
+    <>
+
+
+{/* ==================== RENOMBRAR CATEGORÍA ==================== */}
+
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-bold text-slate-900">
+            Renombrar categoría
+          </h3>
+
+          <p className="mt-1 text-sm text-slate-500">
+            {selectedCategoryName}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedCategoryName(null);
+            setCategoryRenameInput("");
+            setCategoryRenameError("");
+          }}
+          className="rounded-full p-2 text-slate-400 hover:bg-slate-100"
+          aria-label="Volver"
+        >
+          <X size={18} />
+        </button>
+      </div>
+
+      <label className="mt-4 block">
+        <span className="text-sm font-semibold text-slate-700">
+          Nuevo nombre
+        </span>
+
+        <input
+          type="text"
+          value={categoryRenameInput}
+          onChange={(event) => {
+            setCategoryRenameInput(event.target.value);
+            setCategoryRenameError("");
+          }}
+          placeholder="Ej: Delivery / Comidas"
+          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-slate-500"
+        />
+      </label>
+
+      {categoryRenameError && (
+        <p className="mt-3 text-sm font-medium text-red-600">
+          {categoryRenameError}
+        </p>
+      )}
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedCategoryName(null);
+            setCategoryRenameInput("");
+            setCategoryRenameError("");
+          }}
+          className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700"
+        >
+          Volver
+        </button>
+
+        <button
+          type="button"
+          onClick={renameExpenseCategory}
+          className="rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+        >
+          Guardar
+        </button>
+      </div>
+    </>
+  )}
+</div>
+    </div>
+  </div>
+)}
+
           </>
         )}
 
- {/* ==================== VISTA DETALLADA DE PRÉSTAMOS ==================== */}
+{/* ==================== VISTA DETALLADA DE PRÉSTAMOS ==================== */}
 
 
         {activeView === "loans" && (
@@ -3966,21 +4566,16 @@ if (!hasEnteredApp) {
                     Préstamos y financiaciones activas.
                   </p>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowLoanForm((current) => !current)
-                  }
-                  className="shrink-0 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
-                >
-                  {showLoanForm
-                    ? "Cerrar"
-                    : "+ Nuevo crédito"}
-                </button>
               </div>
 
-              {showLoanForm && <LoanForm />}
+        
+
+              {showLoanForm && (
+  <LoanForm
+    onClose={() => setShowLoanForm(false)}
+  />
+)}
+
             </section>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
