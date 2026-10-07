@@ -1025,17 +1025,22 @@ function BackupSection() {
     const budgetConcepts =
       await db.budgetConcepts.toArray();
 
-    const monthlyBudgetAmounts =
-      await db.monthlyBudgetAmounts.toArray();
+   
+const monthlyBudgetAmounts =
+  await db.monthlyBudgetAmounts.toArray();
 
-    const backup = {
-      version: 2,
-      exportedAt: new Date().toISOString(),
-      creditCardExpenses,
-      loans,
-      budgetConcepts,
-      monthlyBudgetAmounts,
-    };
+const incomes = await db.incomes.toArray();
+
+const backup = {
+  version: 3,
+  exportedAt: new Date().toISOString(),
+  creditCardExpenses,
+  loans,
+  budgetConcepts,
+  monthlyBudgetAmounts,
+  incomes,
+};
+
 
     const blob = new Blob(
       [JSON.stringify(backup, null, 2)],
