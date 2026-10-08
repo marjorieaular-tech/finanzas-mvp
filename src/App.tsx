@@ -1099,6 +1099,19 @@ const backup = {
         ? backup.monthlyBudgetAmounts
         : [];
 
+        
+      const hasIncomes = Array.isArray(backup.incomes);
+
+      if (backup.version >= 3 && !hasIncomes) {
+         setMessage(
+          "El respaldo está incompleto: faltan los ingresos."
+     );
+     event.target.value = "";
+     return;
+     }
+
+      const incomes = hasIncomes ? backup.incomes : [];
+
       const confirmed = window.confirm(
         "Este respaldo reemplazará los datos guardados actualmente en este dispositivo. ¿Querés continuar?"
       );
@@ -1114,11 +1127,17 @@ const backup = {
         db.loans,
         db.budgetConcepts,
         db.monthlyBudgetAmounts,
+        db.incomes,
         async () => {
           await db.creditCardExpenses.clear();
           await db.loans.clear();
           await db.budgetConcepts.clear();
           await db.monthlyBudgetAmounts.clear();
+          
+          if (hasIncomes) {
+          await db.incomes.clear();
+          }
+
 
           if (backup.creditCardExpenses.length > 0) {
             await db.creditCardExpenses.bulkPut(
@@ -1143,6 +1162,12 @@ const backup = {
               monthlyBudgetAmounts
             );
           }
+
+          
+           if (hasIncomes && incomes.length > 0) {
+           await db.incomes.bulkPut(incomes);
+           }
+
         }
       );
 
