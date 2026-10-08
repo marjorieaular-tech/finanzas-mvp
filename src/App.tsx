@@ -22,6 +22,9 @@ import {
   Settings2,
   Trash2,
   X,
+  Wallet,
+House,
+ShoppingBasket,
 } from "lucide-react";
 
 import {
@@ -1444,6 +1447,13 @@ const [categoryRenameError, setCategoryRenameError] =
   const [showIncomeForm, setShowIncomeForm] =
   useState(false);
 
+  const [editingIncomeId, setEditingIncomeId] =
+  useState<string | null>(null);
+
+  const [showBudgetAddMenu, setShowBudgetAddMenu] =
+  useState(false);
+
+
 const [incomeDescription, setIncomeDescription] =
   useState("");
 
@@ -2688,6 +2698,14 @@ async function saveIncome(
     return;
   }
 
+  
+if (editingIncomeId) {
+  await db.incomes.update(editingIncomeId, {
+    description,
+    expectedAmount,
+    actualAmount,
+  });
+} else {
   await db.incomes.add({
     id: createId(),
     month: selectedMonth,
@@ -2696,6 +2714,7 @@ async function saveIncome(
     actualAmount,
     status: "active",
   });
+}
 
   setIncomeDescription("");
   setIncomeExpectedAmount("");
@@ -2705,32 +2724,144 @@ async function saveIncome(
 }
 
 
+function startEditingIncome(income: Income) {
+  setEditingIncomeId(income.id);
+  setIncomeDescription(income.description);
+  setIncomeExpectedAmount(
+    String(income.expectedAmount)
+  );
+  setIncomeActualAmount(
+    String(income.actualAmount)
+  );
+  setIncomeError("");
+  setShowIncomeForm(true);
+}
+
+
+async function deleteIncome(income: Income) {
+  const confirmed = window.confirm(
+    `¿Seguro que deseas eliminar el ingreso "${income.description}"? Esta acción no se puede deshacer.`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    await db.incomes.delete(income.id);
+
+    if (editingIncomeId === income.id) {
+      setEditingIncomeId(null);
+      setShowIncomeForm(false);
+    }
+
+    
+window.alert("No se pudo eliminar el ingreso.");
+
+  } catch (error) {
+    console.error(error);
+    
+window.alert("No se pudo eliminar el ingreso.");
+
+  }
+}
+
+
+
 {/* ==================== RETURN PRINCIPAL DE APP ¿? ==================== */}
 
   return (
    <main className="min-h-screen bg-slate-50 px-3 pt-4 pb-20 text-slate-900 sm:px-6">
       <div className="mx-auto max-w-4xl space-y-4">
-        {(activeView === "cards" || activeView === "loans") && (
-  <button
-    type="button"
-    onClick={() => {
-      if (activeView === "cards") {
-        setShowCardForm(true);
-      }
 
-      if (activeView === "loans") {
-        setShowLoanForm(true);
-      }
-    }}
-    className="fixed bottom-24 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-[#0A59FF] text-white shadow-xl transition active:scale-95"
-    aria-label={
-      activeView === "cards"
-        ? "Nueva compra"
-        : "Nuevo crédito"
+ 
+{activeView === "budget" && showBudgetAddMenu && (
+  <div className="fixed bottom-40 right-5 z-50 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+    <button
+      type="button"
+      
+
+onClick={() => {
+  setShowBudgetAddMenu(false);
+  setOpenBudgetSection("income");
+  setEditingIncomeId(null);
+  setIncomeDescription("");
+  setIncomeExpectedAmount("");
+  setIncomeActualAmount("");
+  setIncomeError("");
+  setShowIncomeForm(true);
+}}
+
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-slate-800 hover:bg-slate-50"
+    >
+      <Wallet size={19} />
+      Nuevo ingreso
+    </button>
+
+    <button
+      type="button"
+      
+onClick={() => {
+  setShowBudgetAddMenu(false);
+  setOpenBudgetSection("fixed");
+  setShowFixedConceptForm(true);
+}}
+
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-slate-800 hover:bg-slate-50"
+    >
+      <House size={19} />
+      Gasto fijo
+    </button>
+
+    <button
+      type="button"
+      
+onClick={() => {
+  setShowBudgetAddMenu(false);
+  setOpenBudgetSection("variable");
+  setShowVariableConceptForm(true);
+}}
+
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-slate-800 hover:bg-slate-50"
+    >
+      <ShoppingBasket size={19} />
+      Gasto variable
+    </button>
+  </div>
+)}
+              
+
+{(activeView === "cards" ||
+  activeView === "loans" ||
+  activeView === "budget") && (
+  <button
+
+  type="button"
+  onClick={() => {
+    if (activeView === "cards") {
+      setShowCardForm(true);
     }
-  >
-    <Plus size={28} strokeWidth={2.2} />
-  </button>
+
+    if (activeView === "loans") {
+      setShowLoanForm(true);
+    }
+
+    
+if (activeView === "budget") {
+  setShowBudgetAddMenu((previous) => !previous);
+}
+
+  }}
+  className="fixed bottom-24 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-[#0A59FF] text-white shadow-xl transition active:scale-95"
+  aria-label={
+    activeView === "cards"
+      ? "Nueva compra"
+      : activeView === "loans"
+      ? "Nuevo crédito"
+      : "Nuevo ingreso"
+  }
+>
+  <Plus size={28} strokeWidth={2.2} />
+</button>
+
 )}
         
         {/* ==================== NAVEGACIÓN ==================== */}
@@ -2996,20 +3127,7 @@ async function saveIncome(
   {openBudgetSection === "income" && (
     <div className="mt-4">
 
-      <button
-  type="button"
-  onClick={() =>
-    setShowIncomeForm(
-      !showIncomeForm
-    )
-  }
-  className="w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
->
-  {showIncomeForm
-    ? "Cerrar formulario"
-    : "+ Nuevo ingreso"}
-</button>
-
+      
 {showIncomeForm && (
   <form
     onSubmit={saveIncome}
@@ -3086,12 +3204,14 @@ async function saveIncome(
       </p>
     )}
 
-    <button
-      type="submit"
-      className="mt-4 w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
-    >
-      Guardar ingreso
-    </button>
+    
+<button
+  type="submit"
+  className="mt-4 w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
+>
+  {editingIncomeId ? "Guardar cambios" : "Guardar ingreso"}
+</button>
+
   </form>
 )}
 
@@ -3116,9 +3236,37 @@ async function saveIncome(
                 </p>
               </div>
 
-              <p className="shrink-0 text-sm font-bold text-slate-900">
-                {formatMoney(income.expectedAmount)}
-              </p>
+              
+<div className="flex shrink-0 items-center gap-2">
+  <p className="text-sm font-bold text-slate-900">
+    {formatMoney(income.expectedAmount)}
+  </p>
+
+  
+<button
+  type="button"
+  onClick={() => startEditingIncome(income)}
+  className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100"
+  aria-label="Editar ingreso"
+  title="Editar ingreso"
+>
+  <Pencil size={20} strokeWidth={2} />
+</button>
+
+
+<button
+  type="button"
+  onClick={() => deleteIncome(income)}
+  className="rounded-lg p-2 text-red-500 transition hover:bg-red-50"
+  aria-label="Eliminar ingreso"
+  title="Eliminar ingreso"
+>
+  <Trash2 size={20} strokeWidth={2} />
+</button>
+
+
+</div>
+
             </div>
           ))}
         </div>
@@ -3177,25 +3325,34 @@ async function saveIncome(
     <div className="mt-4">
 
       {/* NUEVO CONCEPTO */}
-      <button
-        type="button"
-        onClick={() =>
-          setShowFixedConceptForm(!showFixedConceptForm)
-        }
-        className="w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
-      >
-        {showFixedConceptForm
-          ? "Cerrar formulario"
-          : "+ Nuevo concepto"}
-      </button>
-
-
+      
       {/* FORMULARIO NUEVO CONCEPTO */}
       {showFixedConceptForm && (
         <form
           onSubmit={saveFixedConcept}
           className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4"
         >
+
+          
+<div className="mb-4 flex items-center justify-between">
+  <h4 className="text-sm font-bold text-slate-900">
+    Nuevo gasto fijo
+  </h4>
+
+  <button
+    type="button"
+    onClick={() => {
+      setShowFixedConceptForm(false);
+      setFixedConceptError("");
+    }}
+    className="rounded-lg p-2 text-slate-400 hover:bg-slate-200"
+    aria-label="Cerrar formulario"
+    title="Cerrar"
+  >
+    <X size={20} />
+  </button>
+</div>
+
           <label className="block">
             <span className="text-sm font-semibold text-slate-700">
               Nombre del gasto fijo
@@ -3487,27 +3644,23 @@ async function saveIncome(
     <div className="mt-4">
 
       {/* NUEVO CONCEPTO */}
-      <button
-        type="button"
-        onClick={() =>
-          setShowVariableConceptForm(
-            !showVariableConceptForm
-          )
-        }
-        className="w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white"
-      >
-        {showVariableConceptForm
-          ? "Cerrar formulario"
-          : "+ Nuevo concepto"}
-      </button>
-
-
+      
       {/* FORMULARIO NUEVO CONCEPTO */}
       {showVariableConceptForm && (
         <form
           onSubmit={saveVariableConcept}
           className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4"
         >
+
+
+<div className="mb-4 flex items-center justify-between">
+  <h4 className="text-sm font-bold text-slate-900">
+    Nuevo gasto variable
+  </h4>
+
+  
+</div>
+
           <label className="block">
             <span className="text-sm font-semibold text-slate-700">
               Nombre del gasto variable
