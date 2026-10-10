@@ -53,6 +53,14 @@ import {
   Tooltip,
 } from "recharts";
 
+
+import type {
+  SavingsGoal,
+  SavingsMovement,
+  SavingsSettings,
+} from "./features/savings/savingsTypes";
+
+
 // ======================================================
 // TIPOS Y MODELOS DE DATOS
 // ======================================================
@@ -130,6 +138,11 @@ class FinanceDatabase extends Dexie {
   budgetConcepts!: Table<BudgetConcept, string>;
   monthlyBudgetAmounts!: Table<MonthlyBudgetAmount, string>;
   incomes!: Table<Income, string>;
+  
+savingsGoals!: Table<SavingsGoal, string>;
+savingsMovements!: Table<SavingsMovement, string>;
+savingsSettings!: Table<SavingsSettings, string>;
+
   constructor() {
     super("finanzas_mvp_db");
 
@@ -174,6 +187,35 @@ this.version(4).stores({
   incomes:
     "id, month, description, status",
 });
+
+
+this.version(5).stores({
+  creditCardExpenses:
+    "id, date, bank, cardName, category, currentInstallmentMonth, status",
+
+  loans:
+    "id, bank, currentInstallmentMonth, status",
+
+  budgetConcepts:
+    "id, name, type, status",
+
+  monthlyBudgetAmounts:
+    "id, conceptId, month, [conceptId+month]",
+
+  incomes:
+    "id, month, description, status",
+
+  savingsGoals:
+    "id, name, status",
+
+  savingsMovements:
+    "id, type, date, goalId",
+
+  savingsSettings:
+    "id",
+});
+
+
 
   }
 }
