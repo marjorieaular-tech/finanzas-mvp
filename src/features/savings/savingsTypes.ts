@@ -30,3 +30,11 @@ export type SavingsSettings = {
   referenceExchangeRate?: number;
 };
 
+
+export type SavingsAllocation = {
+  id: string;
+  goalId: string;
+  amountUsd: number;
+  date: string;
+  note?: string;
+};

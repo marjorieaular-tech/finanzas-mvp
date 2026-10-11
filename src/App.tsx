@@ -54,11 +54,14 @@ import {
 } from "recharts";
 
 
+
 import type {
   SavingsGoal,
   SavingsMovement,
   SavingsSettings,
+  SavingsAllocation,
 } from "./features/savings/savingsTypes";
+
 
 
 // ======================================================
@@ -143,6 +146,10 @@ savingsGoals!: Table<SavingsGoal, string>;
 savingsMovements!: Table<SavingsMovement, string>;
 savingsSettings!: Table<SavingsSettings, string>;
 
+
+savingsAllocations!: Table<SavingsAllocation, string>;
+
+
   constructor() {
     super("finanzas_mvp_db");
 
@@ -216,6 +223,34 @@ this.version(5).stores({
 });
 
 
+this.version(6).stores({
+  creditCardExpenses:
+    "id, date, bank, cardName, category, currentInstallmentMonth, status",
+
+  loans:
+    "id, bank, currentInstallmentMonth, status",
+
+  budgetConcepts:
+    "id, name, type, status",
+
+  monthlyBudgetAmounts:
+    "id, conceptId, month, [conceptId+month]",
+
+  incomes:
+    "id, month, description, status",
+
+  savingsGoals:
+    "id, name, status",
+
+  savingsMovements:
+    "id, type, date, goalId",
+
+  savingsSettings:
+    "id",
+
+  savingsAllocations:
+    "id, goalId, date",
+});
 
   }
 }
