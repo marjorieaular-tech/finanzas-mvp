@@ -10,6 +10,7 @@ import {
   WalletCards,
   CreditCard,
   Landmark,
+  Target,
   ChartNoAxesCombined,
   Check,
   ChevronDown,
@@ -1123,15 +1124,35 @@ const monthlyBudgetAmounts =
 
 const incomes = await db.incomes.toArray();
 
+
+const savingsGoals =
+  await db.savingsGoals.toArray();
+
+const savingsMovements =
+  await db.savingsMovements.toArray();
+
+const savingsSettings =
+  await db.savingsSettings.toArray();
+
+const savingsAllocations =
+  await db.savingsAllocations.toArray();
+
+
+
 const backup = {
-  version: 3,
+  version: 4,
   exportedAt: new Date().toISOString(),
   creditCardExpenses,
   loans,
   budgetConcepts,
   monthlyBudgetAmounts,
   incomes,
+  savingsGoals,
+  savingsMovements,
+  savingsSettings,
+  savingsAllocations,
 };
+
 
 
     const blob = new Blob(
@@ -1166,6 +1187,22 @@ const backup = {
     try {
       const text = await file.text();
       const backup = JSON.parse(text);
+
+      
+if (
+  !backup ||
+  typeof backup !== "object" ||
+  !Number.isInteger(backup.version) ||
+  backup.version < 1 ||
+  backup.version > 4
+) {
+  setMessage(
+    "Versión de respaldo no válida o no compatible."
+  );
+  event.target.value = "";
+  return;
+}
+
 
       if (
         !backup ||
@@ -1203,6 +1240,51 @@ const backup = {
      }
 
       const incomes = hasIncomes ? backup.incomes : [];
+      
+const hasSavingsData = backup.version === 4;
+
+
+if (hasSavingsData) {
+  const validRecords = [
+    ...backup.savingsGoals,
+    ...backup.savingsMovements,
+    ...backup.savingsSettings,
+    ...backup.savingsAllocations,
+  ].every(
+    (record) =>
+      record !== null &&
+      typeof record === "object" &&
+      !Array.isArray(record) &&
+      typeof record.id === "string" &&
+      record.id.trim().length > 0
+  );
+
+  if (!validRecords) {
+    setMessage(
+      "El respaldo contiene registros de ahorro no válidos."
+    );
+    event.target.value = "";
+    return;
+  }
+}
+
+
+if (
+  hasSavingsData &&
+  (
+    !Array.isArray(backup.savingsGoals) ||
+    !Array.isArray(backup.savingsMovements) ||
+    !Array.isArray(backup.savingsSettings) ||
+    !Array.isArray(backup.savingsAllocations)
+  )
+) {
+  setMessage(
+    "El respaldo está incompleto: faltan datos de Ahorro/Inversión."
+  );
+  event.target.value = "";
+  return;
+}
+
 
       const confirmed = window.confirm(
         "Este respaldo reemplazará los datos guardados actualmente en este dispositivo. ¿Querés continuar?"
@@ -1213,14 +1295,26 @@ const backup = {
         return;
       }
 
-      await db.transaction(
-        "rw",
-        db.creditCardExpenses,
-        db.loans,
-        db.budgetConcepts,
-        db.monthlyBudgetAmounts,
-        db.incomes,
-        async () => {
+     
+
+await db.transaction(
+  "rw",
+  [
+    db.creditCardExpenses,
+    db.loans,
+    db.budgetConcepts,
+    db.monthlyBudgetAmounts,
+    db.incomes,
+    db.savingsGoals,
+    db.savingsMovements,
+    db.savingsSettings,
+    db.savingsAllocations,
+  ],
+  async () => {
+
+
+
+
           await db.creditCardExpenses.clear();
           await db.loans.clear();
           await db.budgetConcepts.clear();
@@ -1229,6 +1323,15 @@ const backup = {
           if (hasIncomes) {
           await db.incomes.clear();
           }
+
+          
+if (hasSavingsData) {
+  await db.savingsGoals.clear();
+  await db.savingsMovements.clear();
+  await db.savingsSettings.clear();
+  await db.savingsAllocations.clear();
+}
+
 
 
           if (backup.creditCardExpenses.length > 0) {
@@ -1259,6 +1362,32 @@ const backup = {
            if (hasIncomes && incomes.length > 0) {
            await db.incomes.bulkPut(incomes);
            }
+
+           
+if (hasSavingsData) {
+  if (backup.savingsGoals.length > 0) {
+    await db.savingsGoals.bulkPut(backup.savingsGoals);
+  }
+
+  if (backup.savingsMovements.length > 0) {
+    await db.savingsMovements.bulkPut(
+      backup.savingsMovements
+    );
+  }
+
+  if (backup.savingsSettings.length > 0) {
+    await db.savingsSettings.bulkPut(
+      backup.savingsSettings
+    );
+  }
+
+  if (backup.savingsAllocations.length > 0) {
+    await db.savingsAllocations.bulkPut(
+      backup.savingsAllocations
+    );
+  }
+}
+
 
         }
       );
@@ -1450,9 +1579,23 @@ const [savingsAllocationAmount, setSavingsAllocationAmount] =
 const [savingsReleaseAmount, setSavingsReleaseAmount] =
   useState("");
 
+  
+const [activeSavingsGoalAction, setActiveSavingsGoalAction] =
+  useState<{
+    goalId: string;
+    action: "allocate" | "release";
+  } | null>(null);
+
+
 
 const [showMainMenu, setShowMainMenu] =
   useState(false);
+
+  
+
+const [activeSavingsForm, setActiveSavingsForm] =
+  useState<"menu" | "purchase" | "withdrawal" | "goal" | null>(null);
+
 
   
 const [showBackupTools, setShowBackupTools] =
@@ -2870,6 +3013,9 @@ async function releaseSavingsFromGoal(goalId: string) {
     );
 
     setSavingsReleaseAmount("");
+    
+setActiveSavingsGoalAction(null);
+
   } catch (error) {
     window.alert(
       error instanceof Error
@@ -2944,6 +3090,9 @@ if (alreadyAllocatedUsd + amountUsd > goal.targetAmountUsd) {
     );
 
     setSavingsAllocationAmount("");
+    
+setActiveSavingsGoalAction(null);
+
   } catch (error) {
     window.alert(
       error instanceof Error
@@ -2985,6 +3134,9 @@ async function saveSavingsGoal() {
 
     setNewSavingsGoalName("");
     setNewSavingsGoalTargetUsd("");
+    
+setActiveSavingsForm(null);
+
   } catch {
     window.alert("No se pudo guardar el objetivo.");
   }
@@ -3031,6 +3183,9 @@ async function saveSavingsWithdrawal() {
     );
 
     setSavingsWithdrawalUsd("");
+    
+setActiveSavingsForm(null);
+
   } catch (error) {
     window.alert(
       error instanceof Error
@@ -3072,6 +3227,9 @@ async function saveSavingsPurchase() {
 
     setSavingsPurchaseUsd("");
     setSavingsPurchaseArs("");
+    
+setActiveSavingsForm(null);
+
   } catch {
     window.alert("No se pudo registrar la compra de dólares.");
   }
@@ -3412,9 +3570,12 @@ onClick={() => {
 )}
               
 
+
 {(activeView === "cards" ||
   activeView === "loans" ||
-  activeView === "budget") && (
+  activeView === "budget" ||
+  activeView === "savings") && (
+
   <button
 
   type="button"
@@ -3432,6 +3593,16 @@ if (activeView === "budget") {
   setShowBudgetAddMenu((previous) => !previous);
 }
 
+
+
+if (activeView === "savings") {
+  setActiveSavingsForm((previous) =>
+    previous === "menu" ? null : "menu"
+  );
+}
+
+
+
   }}
   className="fixed bottom-24 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-[#0A59FF] text-white shadow-xl transition active:scale-95"
   aria-label={
@@ -3446,6 +3617,41 @@ if (activeView === "budget") {
 </button>
 
 )}
+
+
+{/* ==================== MENÚ DE ACCIONES DE AHORRO ==================== */}
+
+{activeView === "savings" && activeSavingsForm === "menu" && (
+  <div className="fixed bottom-40 right-5 z-50 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+    <button
+      type="button"
+      onClick={() => setActiveSavingsForm("purchase")}
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-slate-800 hover:bg-slate-50"
+    >
+      <ShoppingBasket size={19} />
+      Comprar USD
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setActiveSavingsForm("withdrawal")}
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-slate-800 hover:bg-slate-50"
+    >
+      <Wallet size={19} />
+      Retirar USD
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setActiveSavingsForm("goal")}
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-slate-800 hover:bg-slate-50"
+    >
+      <Target size={19} />
+      Nuevo objetivo
+    </button>
+  </div>
+)}
+
         
         {/* ==================== NAVEGACIÓN ==================== */}
 
@@ -4778,6 +4984,8 @@ if (activeView === "budget") {
     </div>
 
 
+{activeSavingsForm === "purchase" && (
+
 <form
   onSubmit={(event) => {
     event.preventDefault();
@@ -4825,9 +5033,27 @@ if (activeView === "budget") {
   >
     Registrar compra
   </button>
+  
+<button
+  type="button"
+  onClick={() => {
+    setSavingsPurchaseUsd("");
+    setSavingsPurchaseArs("");
+    setActiveSavingsForm(null);
+  }}
+  className="mt-2 w-full rounded-xl px-3 py-2 text-xs font-medium text-slate-500 hover:bg-slate-50"
+>
+  Cancelar
+</button>
+
 </form>
 
+)}
 
+
+
+
+{activeSavingsForm === "withdrawal" && (
 
 <form
   onSubmit={(event) => {
@@ -4870,8 +5096,23 @@ if (activeView === "budget") {
     >
       Retirar
     </button>
+
+    
+<button
+  type="button"
+  onClick={() => {
+    setSavingsWithdrawalUsd("");
+    setActiveSavingsForm(null);
+  }}
+  className="rounded-xl px-3 py-2 text-xs font-medium text-slate-500 hover:bg-slate-100"
+>
+  Cancelar
+</button>
+
   </div>
 </form>
+
+)}
 
    
 <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -4959,6 +5200,8 @@ if (activeView === "budget") {
 )}
 
 
+{activeSavingsForm === "goal" && (
+
 <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
   <h3 className="text-sm font-semibold text-slate-900">
     Nuevo objetivo de ahorro
@@ -5003,9 +5246,25 @@ if (activeView === "budget") {
       >
         Crear
       </button>
+      
+<button
+  type="button"
+  onClick={() => {
+    setNewSavingsGoalName("");
+    setNewSavingsGoalTargetUsd("");
+    setActiveSavingsForm(null);
+  }}
+  className="rounded-xl px-3 py-2 text-xs font-medium text-slate-500 hover:bg-slate-100"
+>
+  Cancelar
+</button>
+
     </div>
   </form>
 </div>
+
+)}
+
 
 
 {savingsGoals.length > 0 && (
@@ -5086,54 +5345,97 @@ if (activeView === "budget") {
 
 
           
-<div className="mt-3 flex items-center gap-2">
-  <input
-    type="number"
-    min="0.01"
-    step="0.01"
-    inputMode="decimal"
-    placeholder="Asignar USD"
-    aria-label={`Asignar dólares a ${goal.name}`}
-    value={savingsAllocationAmount}
-    onChange={(event) =>
-      setSavingsAllocationAmount(event.target.value)
-    }
-    className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-  />
+
+<div className="mt-3 grid grid-cols-2 gap-2">
+  <button
+    type="button"
+    onClick={() => {
+      setSavingsAllocationAmount("");
+      setSavingsReleaseAmount("");
+      setActiveSavingsGoalAction({
+        goalId: goal.id,
+        action: "allocate",
+      });
+    }}
+    className="rounded-xl bg-slate-100 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
+  >
+    + Asignar
+  </button>
 
   <button
     type="button"
-    onClick={() => void allocateSavingsToGoal(goal.id)}
-    className="rounded-xl bg-[#0A59FF] px-4 py-2.5 text-sm font-semibold text-white"
+    onClick={() => {
+      setSavingsAllocationAmount("");
+      setSavingsReleaseAmount("");
+      setActiveSavingsGoalAction({
+        goalId: goal.id,
+        action: "release",
+      });
+    }}
+    className="rounded-xl bg-slate-100 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
   >
-    Asignar
+    − Liberar
   </button>
 </div>
 
 
-<div className="mt-2 flex items-center gap-2">
-  <input
-    type="number"
-    min="0.01"
-    step="0.01"
-    inputMode="decimal"
-    placeholder="Liberar USD"
-    aria-label={`Liberar dólares de ${goal.name}`}
-    value={savingsReleaseAmount}
-    onChange={(event) =>
-      setSavingsReleaseAmount(event.target.value)
-    }
-    className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-  />
 
-  <button
-    type="button"
-    onClick={() => void releaseSavingsFromGoal(goal.id)}
-    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-  >
-    Liberar
-  </button>
-</div>
+{activeSavingsGoalAction?.goalId === goal.id && (
+  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+    <p className="mb-2 text-xs font-semibold text-slate-700">
+      {activeSavingsGoalAction.action === "allocate"
+        ? "Asignar dólares"
+        : "Liberar dólares"}
+    </p>
+
+    <input
+      type="number"
+      min="0.01"
+      step="0.01"
+      inputMode="decimal"
+      placeholder="Importe en USD"
+      aria-label={`Importe para ${goal.name}`}
+      value={
+        activeSavingsGoalAction.action === "allocate"
+          ? savingsAllocationAmount
+          : savingsReleaseAmount
+      }
+      onChange={(event) => {
+        if (activeSavingsGoalAction.action === "allocate") {
+          setSavingsAllocationAmount(event.target.value);
+        } else {
+          setSavingsReleaseAmount(event.target.value);
+        }
+      }}
+      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+    />
+
+    <div className="mt-3 flex gap-2">
+      <button
+        type="button"
+        onClick={() => setActiveSavingsGoalAction(null)}
+        className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700"
+      >
+        Cancelar
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          if (activeSavingsGoalAction.action === "allocate") {
+            void allocateSavingsToGoal(goal.id);
+          } else {
+            void releaseSavingsFromGoal(goal.id);
+          }
+        }}
+        className="flex-1 rounded-xl bg-[#0A59FF] px-3 py-2.5 text-sm font-semibold text-white"
+      >
+        Confirmar
+      </button>
+    </div>
+  </div>
+)}
+
 
 
         </div>
