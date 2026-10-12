@@ -1286,6 +1286,43 @@ if (
 }
 
 
+if (hasSavingsData) {
+  const validMovementTypes = [
+    "initial_balance",
+    "purchase",
+    "withdrawal",
+    "adjustment",
+  ];
+
+  const validMovements = backup.savingsMovements.every(
+    (movement: SavingsMovement) =>
+      validMovementTypes.includes(movement.type) &&
+      
+typeof movement.amountUsd === "number" &&
+Number.isFinite(movement.amountUsd) &&
+(
+  movement.type === "withdrawal"
+    ? movement.amountUsd < 0
+    : movement.type === "adjustment"
+      ? true
+      : movement.amountUsd > 0
+) &&
+typeof movement.date === "string" &&
+
+      movement.date.trim().length > 0
+  );
+
+  if (!validMovements) {
+    setMessage(
+      "El respaldo contiene movimientos de ahorro no válidos."
+    );
+    event.target.value = "";
+    return;
+  }
+}
+
+
+
       const confirmed = window.confirm(
         "Este respaldo reemplazará los datos guardados actualmente en este dispositivo. ¿Querés continuar?"
       );
