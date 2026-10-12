@@ -2008,7 +2008,7 @@ const variableBudgetTotal = variableBudgetConcepts.reduce(
     0
   );
 
-  const cardCategoryTotals = Array.from(
+   const cardCategoryTotals = Array.from(
   expensesForMonth.reduce((map, item) => {
     const category =
       item.expense.category?.trim() ||
@@ -2037,6 +2037,29 @@ const variableBudgetTotal = variableBudgetConcepts.reduce(
       total + item.loan.monthlyPayment,
     0
   );
+
+   const summaryChartData = [
+  {
+    name: "Gastos fijos",
+    value: fixedBudgetTotal,
+    color: "#4555AA",
+  },
+  {
+    name: "Tarjetas",
+    value: totalForMonth,
+    color: "#8994E8",
+  },
+  {
+    name: "Créditos",
+    value: totalLoansForMonth,
+    color: "#E6AA66",
+  },
+  {
+    name: "Gastos variables",
+    value: variableBudgetTotal,
+    color: "#57B8A7",
+  },
+].filter((item) => item.value > 0);
 
 
    const activeIncomes = incomes.filter(
@@ -3767,17 +3790,78 @@ if (activeView === "savings") {
 
         {activeView === "summary" && (
   <section className="space-y-3">
-    <div className="rounded-3xl bg-slate-900 p-5 text-white shadow-sm">
-      <p className="text-sm text-slate-300">
-        Compromiso total en{" "}
-        {formatMonth(selectedMonth)}
-      </p>
+    <div className="rounded-3xl bg-blue-50 p-3 text-slate-900">
+      
 
-              <p className="mt-1 text-3xl font-bold">
-  {formatMoney(overallMonthlyCommitment)}
-</p>
+      
+ {/* ==================== GRÁFICO ==================== */}
+      <div className="mt-3 rounded-2xl bg-white p-3 text-slate-900">
+  <p className="mb-2 text-sm font-semibold">
+    Distribución de compromisos
+  </p>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+  <div className="flex items-center gap-2">
+    <div className="h-36 w-36 shrink-0">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={summaryChartData}
+            dataKey="value"
+            nameKey="name"
+            cx="50%"
+            cy="50%"
+            innerRadius={38}
+            outerRadius={58}
+            paddingAngle={2}
+            strokeWidth={0}
+          >
+            {summaryChartData.map((item) => (
+              <Cell key={item.name} fill={item.color} />
+            ))}
+          </Pie>
+          <Tooltip
+            formatter={(value) => formatMoney(Number(value))}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+
+    <div className="min-w-0 flex-1 space-y-2">
+      {summaryChartData.map((item) => {
+        const total = summaryChartData.reduce(
+          (sum, category) => sum + category.value,
+          0
+        );
+
+        const percentage =
+          total > 0 ? Math.round((item.value / total) * 100) : 0;
+
+        return (
+          <div
+            key={item.name}
+            className="flex items-center justify-between gap-1 text-xs"
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: item.color }}
+              />
+              <span className="truncate">{item.name}</span>
+            </span>
+            <span className="shrink-0 font-semibold">
+              {percentage}%
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+</div>
+      
+      
+ {/* ==================== MINI CARDS RESUMEN ==================== */}
+      
+      <div className="mt-3 grid grid-cols-2 gap-2">
   <div className="rounded-2xl bg-white px-4 py-3 text-slate-900 shadow-sm">
     <p className="text-xs text-slate-500">Ingresos</p>
     <p className="mt-1 text-lg font-bold">
@@ -3792,75 +3876,110 @@ if (activeView === "savings") {
     </p>
   </div>
 
-  <div className="rounded-2xl bg-white px-4 py-3 text-slate-900 shadow-sm">
-    <p className="text-xs text-slate-500">Disponible</p>
-    <p className="mt-1 text-lg font-bold">
-      {formatMoney(availableMonthlyAmount)}
+ <div className="col-span-2 rounded-2xl bg-white px-4 py-3 text-center text-slate-900 shadow-sm">
+  <p className="text-xs text-slate-500">
+    Disponible proyectado
+  </p>
+
+  <p
+    className={`mt-1 text-xl font-bold ${
+      availableMonthlyAmount < 0
+        ? "text-red-500"
+        : "text-emerald-600"
+    }`}
+  >
+    {formatMoney(availableMonthlyAmount)}
+  </p>
+</div>
+</div>
+
+
+<div className="mt-3">
+  <p className="mb-2 text-sm font-semibold text-slate-800">
+    Detalle de compromisos
+  </p>
+
+  <div className="grid grid-cols-2 gap-2">
+    {[
+      {
+        name: "Gastos fijos",
+        value: fixedBudgetTotal,
+        color: "#4555AA",
+        view: "budget",
+      },
+      {
+        name: "Gastos variables",
+        value: variableBudgetTotal,
+        color: "#57B8A7",
+        view: "budget",
+      },
+      {
+        name: "Tarjetas",
+        value: totalForMonth,
+        color: "#8994E8",
+        view: "cards",
+      },
+      {
+        name: "Créditos",
+        value: totalLoansForMonth,
+        color: "#E6AA66",
+        view: "loans",
+      },
+    ].map((item) => (
+      <button
+        key={item.name}
+        type="button"
+        onClick={() =>
+          setActiveView(item.view as "budget" | "cards" | "loans")
+        }
+        className="min-w-0 rounded-2xl bg-white p-3 text-left shadow-sm"
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: item.color }}
+          />
+          <span className="text-xs font-medium text-slate-700">
+            {item.name}
+          </span>
+        </div>
+
+        <p className="mt-2 break-words text-base font-bold text-slate-900">
+          {formatMoney(item.value)}
+        </p>
+
+        <p className="mt-2 text-right text-xs font-medium text-indigo-600">
+          Ver detalle →
+        </p>
+      </button>
+    ))}
+  </div>
+</div>
+
+<div className="mt-3 grid grid-cols-2 gap-2">
+  <div className="rounded-2xl border border-indigo-100 bg-white/70 p-3">
+    <p className="text-sm font-semibold text-slate-800">
+      Ahorro / Inversión
+    </p>
+    <p className="mt-2 text-xs text-slate-500">
+      Próximamente
+    </p>
+  </div>
+
+  <div className="rounded-2xl border border-indigo-100 bg-white/70 p-3">
+    <p className="text-sm font-semibold text-slate-800">
+      50/50
+    </p>
+    <p className="mt-2 text-xs text-slate-500">
+      Próximamente
     </p>
   </div>
 </div>
 
-<div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-  <button
-    type="button"
-    onClick={() => setActiveView("budget")}
-    className="min-h-[110px] rounded-2xl bg-white/10 p-4 text-left transition hover:bg-white/15 active:scale-[0.98]"
-  >
-    <p className="text-xs text-slate-300">Gastos fijos</p>
-    <p className="mt-1 text-lg font-bold">
-      {formatMoney(fixedBudgetTotal)}
-    </p>
-    <p className="mt-2 text-[11px] text-slate-400">
-      Ver detalle →
-    </p>
-  </button>
+            </div> {/* Cierra el contenedor principal del Resumen */}
 
-  <button
-    type="button"
-    onClick={() => setActiveView("budget")}
-    className="min-h-[110px] rounded-2xl bg-white/10 p-4 text-left transition hover:bg-white/15 active:scale-[0.98]"
-  >
-    <p className="text-xs text-slate-300">Gastos variables</p>
-    <p className="mt-1 text-lg font-bold">
-      {formatMoney(variableBudgetTotal)}
-    </p>
-    <p className="mt-2 text-[11px] text-slate-400">
-      Ver detalle →
-    </p>
-  </button>
-
-  <button
-    type="button"
-    onClick={() => setActiveView("cards")}
-    className="min-h-[110px] rounded-2xl bg-white/10 p-4 text-left transition hover:bg-white/15 active:scale-[0.98]"
-  >
-    <p className="text-xs text-slate-300">Tarjetas</p>
-    <p className="mt-1 text-lg font-bold">
-      {formatMoney(totalForMonth)}
-    </p>
-    <p className="mt-2 text-[11px] text-slate-400">
-      Ver detalle →
-    </p>
-  </button>
-
-  <button
-    type="button"
-    onClick={() => setActiveView("loans")}
-    className="min-h-[110px] rounded-2xl bg-white/10 p-4 text-left transition hover:bg-white/15 active:scale-[0.98]"
-  >
-    <p className="text-xs text-slate-300">Créditos</p>
-    <p className="mt-1 text-lg font-bold">
-      {formatMoney(totalLoansForMonth)}
-    </p>
-    <p className="mt-2 text-[11px] text-slate-400">
-      Ver detalle →
-    </p>
-  </button>
-</div>
-            </div>
-
-          </section>
-        )}
+</section>
+)}
 
  {/* ==================== VISTA PRESUPUESTO ==================== */}
 
