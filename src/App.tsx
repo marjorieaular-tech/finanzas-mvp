@@ -64,16 +64,28 @@ import type {
 
 
 
+
+import {
+  calculateSavingsBalance,
+  canAllocateSavings,
+  canWithdrawSavings,
+} from "./features/savings/savingsCalculations";
+
+
+
 // ======================================================
 // TIPOS Y MODELOS DE DATOS
 // ======================================================
+
 
 type View =
   | "summary"
   | "budget"
   | "cards"
   | "loans"
-  | "projection";
+  | "projection"
+  | "savings";
+
 
 type CreditCardExpense = {
   id: string;
@@ -1403,6 +1415,51 @@ function App() {
   const [activeView, setActiveView] =
     useState<View>("summary");
 
+    
+const [previousView, setPreviousView] =
+  useState<View>("summary");
+
+    
+const [initialSavingsUsd, setInitialSavingsUsd] =
+  useState("");
+
+  
+const [savingsWithdrawalUsd, setSavingsWithdrawalUsd] =
+  useState("");
+
+  
+const [savingsPurchaseUsd, setSavingsPurchaseUsd] =
+  useState("");
+
+  
+const [savingsPurchaseArs, setSavingsPurchaseArs] =
+  useState("");
+
+
+const [newSavingsGoalName, setNewSavingsGoalName] =
+  useState("");
+
+const [newSavingsGoalTargetUsd, setNewSavingsGoalTargetUsd] =
+  useState("");
+
+  
+const [savingsAllocationAmount, setSavingsAllocationAmount] =
+  useState("");
+
+  
+const [savingsReleaseAmount, setSavingsReleaseAmount] =
+  useState("");
+
+
+const [showMainMenu, setShowMainMenu] =
+  useState(false);
+
+  
+const [showBackupTools, setShowBackupTools] =
+  useState(false);
+
+
+
   const [showCardForm, setShowCardForm] =
     useState(false);
 
@@ -1590,6 +1647,38 @@ const [incomeError, setIncomeError] =
         .toArray(),
     [selectedMonth]
   ) ?? [];
+
+  
+const savingsMovements =
+  useLiveQuery(
+    () => db.savingsMovements.toArray(),
+    []
+  ) ?? [];
+
+const savingsAllocations =
+  useLiveQuery(
+    () => db.savingsAllocations.toArray(),
+    []
+  ) ?? [];
+
+  
+const savingsGoals =
+  useLiveQuery(
+    () => db.savingsGoals.toArray(),
+    []
+  ) ?? [];
+
+const savingsBalance = calculateSavingsBalance(
+  savingsMovements,
+  savingsAllocations
+);
+
+
+const hasInitialSavingsBalance = savingsMovements.some(
+  (movement) => movement.type === "initial_balance"
+);
+
+
 
   const fixedBudgetConcepts = budgetConcepts
   .filter(
@@ -2732,6 +2821,301 @@ if (!hasEnteredApp) {
   );
 }
 
+
+async function releaseSavingsFromGoal(goalId: string) {
+  const amountUsd = Number(
+    savingsReleaseAmount.trim().replace(",", ".")
+  );
+
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+    window.alert("Ingresa un importe en USD mayor que cero.");
+    return;
+  }
+
+  try {
+    await db.transaction(
+      "rw",
+      db.savingsGoals,
+      db.savingsAllocations,
+      async () => {
+        const goal = await db.savingsGoals.get(goalId);
+
+        if (!goal || goal.status !== "active") {
+          throw new Error("El objetivo no está disponible.");
+        }
+
+        const allocations = await db.savingsAllocations
+          .where("goalId")
+          .equals(goalId)
+          .toArray();
+
+        const allocatedUsd = allocations.reduce(
+          (total, allocation) => total + allocation.amountUsd,
+          0
+        );
+
+        if (amountUsd > Math.round(allocatedUsd * 100) / 100) {
+          throw new Error(
+            "No puedes liberar más USD de los asignados al objetivo."
+          );
+        }
+
+        await db.savingsAllocations.add({
+          id: createId(),
+          goalId,
+          amountUsd: -amountUsd,
+          date: new Date().toISOString().slice(0, 10),
+        });
+      }
+    );
+
+    setSavingsReleaseAmount("");
+  } catch (error) {
+    window.alert(
+      error instanceof Error
+        ? error.message
+        : "No se pudo liberar el ahorro."
+    );
+  }
+}
+
+
+async function allocateSavingsToGoal(goalId: string) {
+  const amountUsd = Number(
+    savingsAllocationAmount.trim().replace(",", ".")
+  );
+
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+    window.alert("Ingresa un importe en USD mayor que cero.");
+    return;
+  }
+
+  if (!canAllocateSavings(amountUsd, savingsBalance.unallocatedUsd)) {
+    window.alert("No tienes suficientes dólares sin asignar.");
+    return;
+  }
+
+  try {
+    await db.transaction(
+      "rw",
+      db.savingsGoals,
+      db.savingsMovements,
+      db.savingsAllocations,
+      async () => {
+        const goal = await db.savingsGoals.get(goalId);
+        if (!goal || goal.status !== "active") {
+          throw new Error("El objetivo ya no está disponible.");
+        }
+
+        const movements = await db.savingsMovements.toArray();
+        const allocations = await db.savingsAllocations.toArray();
+        
+        
+const alreadyAllocatedUsd = allocations
+  .filter((allocation) => allocation.goalId === goalId)
+  .reduce(
+    (total, allocation) => total + allocation.amountUsd,
+    0
+  );
+
+if (alreadyAllocatedUsd + amountUsd > goal.targetAmountUsd) {
+  throw new Error(
+    "El importe supera lo que falta para completar este objetivo."
+  );
+}
+
+
+        const currentBalance = calculateSavingsBalance(
+          movements,
+          allocations
+        );
+
+        if (!canAllocateSavings(amountUsd, currentBalance.unallocatedUsd)) {
+          throw new Error("No tienes suficientes dólares sin asignar.");
+        }
+
+        await db.savingsAllocations.add({
+          id: createId(),
+          goalId,
+          amountUsd,
+          date: new Date().toISOString().slice(0, 10),
+        });
+      }
+    );
+
+    setSavingsAllocationAmount("");
+  } catch (error) {
+    window.alert(
+      error instanceof Error
+        ? error.message
+        : "No se pudo asignar el ahorro."
+    );
+  }
+}
+
+
+async function saveSavingsGoal() {
+  const name = newSavingsGoalName.trim();
+
+  const targetAmountUsd = Number(
+    newSavingsGoalTargetUsd.trim().replace(",", ".")
+  );
+
+  if (!name) {
+    window.alert("Ingresa el nombre del objetivo.");
+    return;
+  }
+
+  if (
+    !Number.isFinite(targetAmountUsd) ||
+    targetAmountUsd <= 0
+  ) {
+    window.alert("Ingresa una meta en USD mayor que cero.");
+    return;
+  }
+
+  try {
+    await db.savingsGoals.add({
+      id: createId(),
+      name,
+      targetAmountUsd,
+      createdAt: new Date().toISOString(),
+      status: "active",
+    });
+
+    setNewSavingsGoalName("");
+    setNewSavingsGoalTargetUsd("");
+  } catch {
+    window.alert("No se pudo guardar el objetivo.");
+  }
+}
+
+
+async function saveSavingsWithdrawal() {
+  const amountUsd = Number(
+    savingsWithdrawalUsd.trim().replace(",", ".")
+  );
+
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+    window.alert("Ingresa un retiro en USD mayor que cero.");
+    return;
+  }
+
+  try {
+    await db.transaction(
+      "rw",
+      db.savingsMovements,
+      db.savingsAllocations,
+      async () => {
+        const movements = await db.savingsMovements.toArray();
+        const allocations = await db.savingsAllocations.toArray();
+
+        const balance = calculateSavingsBalance(
+          movements,
+          allocations
+        );
+
+        if (!canWithdrawSavings(amountUsd, balance.unallocatedUsd)) {
+          throw new Error(
+            "No tienes suficientes USD disponibles sin asignar."
+          );
+        }
+
+        await db.savingsMovements.add({
+          id: createId(),
+          type: "withdrawal",
+          date: new Date().toISOString().slice(0, 10),
+          amountUsd: -amountUsd,
+        });
+      }
+    );
+
+    setSavingsWithdrawalUsd("");
+  } catch (error) {
+    window.alert(
+      error instanceof Error
+        ? error.message
+        : "No se pudo registrar el retiro."
+    );
+  }
+}
+
+
+
+async function saveSavingsPurchase() {
+  const amountUsd = Number(
+    savingsPurchaseUsd.trim().replace(",", ".")
+  );
+
+  const amountArs = Number(
+    savingsPurchaseArs.trim().replace(",", ".")
+  );
+
+  if (
+    !Number.isFinite(amountUsd) ||
+    !Number.isFinite(amountArs) ||
+    amountUsd <= 0 ||
+    amountArs <= 0
+  ) {
+    window.alert("Ingresa importes válidos en USD y ARS.");
+    return;
+  }
+
+  try {
+    await db.savingsMovements.add({
+      id: createId(),
+      type: "purchase",
+      date: new Date().toISOString().slice(0, 10),
+      amountUsd,
+      amountArs,
+    });
+
+    setSavingsPurchaseUsd("");
+    setSavingsPurchaseArs("");
+  } catch {
+    window.alert("No se pudo registrar la compra de dólares.");
+  }
+}
+
+
+async function saveInitialSavingsBalance() {
+  const amountUsd = Number(initialSavingsUsd.trim().replace(",", "."));
+
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+    window.alert("Ingresa un saldo inicial en USD mayor que cero.");
+    return;
+  }
+
+  try {
+    await db.transaction("rw", db.savingsMovements, async () => {
+      const existingInitial = await db.savingsMovements
+        .where("type")
+        .equals("initial_balance")
+        .first();
+
+      if (existingInitial) {
+        throw new Error("Ya existe un saldo inicial registrado.");
+      }
+
+      await db.savingsMovements.add({
+        id: createId(),
+        type: "initial_balance",
+        date: new Date().toISOString().slice(0, 10),
+        amountUsd,
+      });
+    });
+
+    setInitialSavingsUsd("");
+  } catch (error) {
+    window.alert(
+      error instanceof Error
+        ? error.message
+        : "No se pudo registrar el saldo inicial."
+    );
+  }
+}
+
+
 async function saveIncome(
   event: FormEvent<HTMLFormElement>
 ) {
@@ -2848,6 +3232,128 @@ window.alert("No se pudo eliminar el ingreso.");
   return (
    <main className="min-h-screen bg-slate-50 px-3 pt-4 pb-20 text-slate-900 sm:px-6">
       <div className="mx-auto max-w-4xl space-y-4">
+
+
+{/* ==================== MENÚ PRINCIPAL ==================== */}
+
+
+{showMainMenu && (
+  <div className="fixed inset-0 z-[100]">
+    {/* Fondo oscuro */}
+    <button
+      type="button"
+      aria-label="Cerrar menú"
+      onClick={() => setShowMainMenu(false)}
+      className="absolute inset-0 h-full w-full bg-slate-950/50"
+    />
+
+    {/* Panel lateral */}
+    <aside
+      aria-label="Menú principal"
+      className="absolute inset-y-0 left-0 flex w-[82%] max-w-[340px] flex-col bg-white p-5 shadow-2xl"
+    >
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-lg font-bold text-slate-900">
+          Finanself
+        </h2>
+
+        <button
+          type="button"
+          onClick={() => setShowMainMenu(false)}
+          className="rounded-xl p-2 text-xl text-slate-500"
+          aria-label="Cerrar menú"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="space-y-1">
+        <button
+          type="button"
+          
+onClick={() => {
+  if (activeView !== "savings") {
+    setPreviousView(activeView);
+  }
+
+  setActiveView("savings");
+  setShowMainMenu(false);
+}}
+
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-slate-800 hover:bg-slate-100"
+        >
+          <span className="text-xl">💰</span>
+          <span className="flex-1">Ahorro / Inversión</span>
+          <span className="text-slate-400">›</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() =>
+            setShowBackupTools((previous) => !previous)
+          }
+          aria-expanded={showBackupTools}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-slate-800 hover:bg-slate-100"
+        >
+          <span className="text-xl">📁</span>
+          <span className="flex-1">Exportar / Importar</span>
+          <span className="text-slate-400">
+            {showBackupTools ? "⌄" : "›"}
+          </span>
+        </button>
+
+        {showBackupTools && (
+          <div className="pt-2">
+            <BackupSection />
+          </div>
+        )}
+      </div>
+    </aside>
+  </div>
+)}
+
+
+{/* ==================== ENCABEZADO PRINCIPAL ==================== */}
+
+<div className="flex items-center justify-between py-2">
+  <button
+    type="button"
+    
+onClick={() => setShowMainMenu((previous) => !previous)}
+
+    className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50"
+    
+aria-label="Abrir o cerrar menú principal"
+aria-expanded={showMainMenu}
+title="Menú principal"
+
+  >
+    <span className="text-xl leading-none">☰</span>
+  </button>
+
+  
+<div className="flex flex-col items-center gap-1.5">
+  <span className="text-lg font-extrabold tracking-tight text-slate-900">
+    Finanself
+  </span>
+
+  <div className="flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 shadow-sm">
+    <input
+      type="month"
+      value={selectedMonth}
+      onChange={(event) =>
+        setSelectedMonth(event.target.value)
+      }
+      aria-label="Seleccionar mes de trabajo"
+      className="w-[145px] bg-transparent text-center text-xs font-semibold text-slate-700 outline-none"
+    />
+  </div>
+</div>
+
+
+  <div className="h-11 w-11" aria-hidden="true" />
+</div>
+
 
  
 {activeView === "budget" && showBudgetAddMenu && (
@@ -3110,21 +3616,6 @@ if (activeView === "budget") {
 </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <label className="text-sm font-medium text-slate-600">
-                Revisar otro mes
-              </label>
-
-              <input
-                type="month"
-                value={selectedMonth}
-                onChange={(event) =>
-                  setSelectedMonth(event.target.value)
-                }
-                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-slate-500"
-              />
-            </div>
-            <BackupSection />
           </section>
         )}
 
@@ -4173,7 +4664,7 @@ if (activeView === "budget") {
   </section>
 )}
         
- {/* ==================== PROYECCIÓN ==================== */}
+ {/* ==================== VISTA PROYECCIONES ==================== */}
 
         {activeView === "projection" && (
   <section className="space-y-3">
@@ -4256,6 +4747,408 @@ if (activeView === "budget") {
     </div>
   </section>
 )}
+
+
+{/* ==================== VISTA AHORRO / INVERSIÓN ==================== */}
+
+{activeView === "savings" && (
+  <section className="space-y-4">
+    <div>
+      
+<div className="flex items-center gap-2">
+  <button
+    type="button"
+    onClick={() => setActiveView(previousView)}
+    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+    aria-label="Volver a la pantalla anterior"
+    title="Volver"
+  >
+    <span className="text-xl leading-none">←</span>
+  </button>
+
+  <h2 className="text-xl font-bold text-slate-900">
+    Ahorro / Inversión
+  </h2>
+</div>
+
+
+      <p className="mt-1 text-sm text-slate-500">
+        Organiza tus ahorros en dólares y avanza hacia tus objetivos.
+      </p>
+    </div>
+
+
+<form
+  onSubmit={(event) => {
+    event.preventDefault();
+    void saveSavingsPurchase();
+  }}
+  className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+>
+  <h3 className="text-sm font-semibold text-slate-900">
+    Comprar dólares
+  </h3>
+
+  <div className="mt-3 flex items-center gap-2">
+    <input
+      type="number"
+      min="0.01"
+      step="0.01"
+      inputMode="decimal"
+      placeholder="USD comprados"
+      aria-label="Dólares comprados"
+      value={savingsPurchaseUsd}
+      onChange={(event) =>
+        setSavingsPurchaseUsd(event.target.value)
+      }
+      className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+    />
+
+    <input
+      type="number"
+      min="0.01"
+      step="0.01"
+      inputMode="decimal"
+      placeholder="ARS pagados"
+      aria-label="Pesos pagados"
+      value={savingsPurchaseArs}
+      onChange={(event) =>
+        setSavingsPurchaseArs(event.target.value)
+      }
+      className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+    />
+  </div>
+
+  <button
+    type="submit"
+    className="mt-3 w-full rounded-xl bg-[#0A59FF] px-4 py-2.5 text-sm font-semibold text-white"
+  >
+    Registrar compra
+  </button>
+</form>
+
+
+
+<form
+  onSubmit={(event) => {
+    event.preventDefault();
+    void saveSavingsWithdrawal();
+  }}
+  className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+>
+  <h3 className="text-sm font-semibold text-slate-900">
+    Retirar dólares
+  </h3>
+
+  <p className="mt-1 text-xs text-slate-500">
+    Disponible para retirar:{" "}
+    {savingsBalance.unallocatedUsd.toLocaleString("es-AR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}{" "}
+    USD
+  </p>
+
+  <div className="mt-3 flex items-center gap-2">
+    <input
+      type="number"
+      min="0.01"
+      step="0.01"
+      inputMode="decimal"
+      placeholder="Importe en USD"
+      aria-label="Dólares a retirar"
+      value={savingsWithdrawalUsd}
+      onChange={(event) =>
+        setSavingsWithdrawalUsd(event.target.value)
+      }
+      className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+    />
+
+    <button
+      type="submit"
+      className="rounded-xl bg-[#0A59FF] px-4 py-2.5 text-sm font-semibold text-white"
+    >
+      Retirar
+    </button>
+  </div>
+</form>
+
+   
+<div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+
+      <p className="text-sm font-medium text-slate-500">
+        Ahorro acumulado
+      </p>
+
+      
+<p className="mt-2 text-3xl font-bold text-slate-900">
+  {savingsBalance.totalUsd.toLocaleString("es-AR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}{" "}
+  USD
+</p>
+
+
+<div className="mt-3 border-t border-slate-100 pt-3">
+  <p className="text-xs text-slate-500">
+    Asignado a objetivos
+  </p>
+
+  <p className="mt-1 text-lg font-semibold text-slate-800">
+    {savingsBalance.allocatedUsd.toLocaleString("es-AR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}{" "}
+    USD
+  </p>
+</div>
+
+
+<div className="mt-3 border-t border-slate-100 pt-3">
+  <p className="text-xs text-slate-500">
+    Disponible sin asignar
+  </p>
+
+  <p className="mt-1 text-lg font-semibold text-slate-800">
+    {savingsBalance.unallocatedUsd.toLocaleString("es-AR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}{" "}
+    USD
+  </p>
+</div>
+
+
+    </div>
+
+    
+{!hasInitialSavingsBalance && (
+  <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <h3 className="text-sm font-semibold text-slate-900">
+      Registrar saldo inicial
+    </h3>
+
+    <p className="mt-1 text-xs text-slate-500">
+      Dólares que ya tienes ahorrados.
+    </p>
+
+    <div className="mt-3 flex items-center gap-2">
+      <input
+        type="number"
+        min="0.01"
+        step="0.01"
+        inputMode="decimal"
+        placeholder="Monto en USD"
+        value={initialSavingsUsd}
+        onChange={(event) =>
+          setInitialSavingsUsd(event.target.value)
+        }
+        className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-blue-500"
+      />
+
+      <button
+        type="button"
+        onClick={saveInitialSavingsBalance}
+        className="rounded-xl bg-[#0A59FF] px-4 py-3 text-sm font-semibold text-white"
+      >
+        Guardar
+      </button>
+    </div>
+  </div>
+)}
+
+
+<div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+  <h3 className="text-sm font-semibold text-slate-900">
+    Nuevo objetivo de ahorro
+  </h3>
+
+  <form
+    onSubmit={(event) => {
+      event.preventDefault();
+      void saveSavingsGoal();
+    }}
+    className="mt-3 space-y-3"
+  >
+    <input
+      type="text"
+      placeholder="Nombre del objetivo"
+      aria-label="Nombre del objetivo"
+      value={newSavingsGoalName}
+      onChange={(event) =>
+        setNewSavingsGoalName(event.target.value)
+      }
+      className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-blue-500"
+    />
+
+    <div className="flex gap-2">
+      <input
+        type="number"
+        min="0.01"
+        step="0.01"
+        inputMode="decimal"
+        placeholder="Meta en USD"
+        aria-label="Meta en USD"
+        value={newSavingsGoalTargetUsd}
+        onChange={(event) =>
+          setNewSavingsGoalTargetUsd(event.target.value)
+        }
+        className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-blue-500"
+      />
+
+      <button
+        type="submit"
+        className="rounded-xl bg-[#0A59FF] px-4 py-3 text-sm font-semibold text-white"
+      >
+        Crear
+      </button>
+    </div>
+  </form>
+</div>
+
+
+{savingsGoals.length > 0 && (
+  <div className="w-full max-w-sm space-y-2">
+    <h3 className="text-sm font-semibold text-slate-700">
+      Mis objetivos
+    </h3>
+
+    
+{savingsGoals
+  .filter((goal) => goal.status === "active")
+  .map((goal) => {
+    const allocatedToGoalUsd = savingsAllocations
+      .filter((allocation) => allocation.goalId === goal.id)
+      .reduce(
+        (total, allocation) => total + allocation.amountUsd,
+        0
+      );
+
+    const progressPercent =
+      Math.min(
+        100,
+        Math.max(
+          0,
+          (allocatedToGoalUsd / goal.targetAmountUsd) * 100
+        )
+      );
+
+    return (
+
+        <div
+          key={goal.id}
+          className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+        >
+          <p className="text-sm font-semibold text-slate-900">
+            {goal.name}
+          </p>
+
+          <p className="mt-1 text-xs text-slate-500">
+            Meta:{" "}
+            {goal.targetAmountUsd.toLocaleString("es-AR", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}{" "}
+            USD
+          </p>
+
+          
+<div className="mt-3 space-y-2">
+  <div className="flex items-center justify-between text-xs">
+    <span className="font-medium text-slate-600">
+      {allocatedToGoalUsd.toLocaleString("es-AR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}{" "}
+      USD asignados
+    </span>
+
+    <span className="font-semibold text-[#0A59FF]">
+      {progressPercent.toFixed(1)}%
+    </span>
+  </div>
+
+  <div
+    className="h-2 overflow-hidden rounded-full bg-slate-100"
+    role="progressbar"
+    aria-label={`Progreso de ${goal.name}`}
+    aria-valuemin={0}
+    aria-valuemax={100}
+    aria-valuenow={progressPercent}
+  >
+    <div
+      className="h-full rounded-full bg-[#0A59FF] transition-all"
+      style={{ width: `${progressPercent}%` }}
+    />
+  </div>
+</div>
+
+
+          
+<div className="mt-3 flex items-center gap-2">
+  <input
+    type="number"
+    min="0.01"
+    step="0.01"
+    inputMode="decimal"
+    placeholder="Asignar USD"
+    aria-label={`Asignar dólares a ${goal.name}`}
+    value={savingsAllocationAmount}
+    onChange={(event) =>
+      setSavingsAllocationAmount(event.target.value)
+    }
+    className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+  />
+
+  <button
+    type="button"
+    onClick={() => void allocateSavingsToGoal(goal.id)}
+    className="rounded-xl bg-[#0A59FF] px-4 py-2.5 text-sm font-semibold text-white"
+  >
+    Asignar
+  </button>
+</div>
+
+
+<div className="mt-2 flex items-center gap-2">
+  <input
+    type="number"
+    min="0.01"
+    step="0.01"
+    inputMode="decimal"
+    placeholder="Liberar USD"
+    aria-label={`Liberar dólares de ${goal.name}`}
+    value={savingsReleaseAmount}
+    onChange={(event) =>
+      setSavingsReleaseAmount(event.target.value)
+    }
+    className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+  />
+
+  <button
+    type="button"
+    onClick={() => void releaseSavingsFromGoal(goal.id)}
+    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+  >
+    Liberar
+  </button>
+</div>
+
+
+        </div>
+      
+      );
+      })}
+
+  </div>
+)}
+
+
+
+  </section>
+)}
+
 
  {/* ==================== VISTA DETALLADA DE TARJETAS ==================== */}
 
