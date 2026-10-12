@@ -1656,9 +1656,15 @@ const [showBackupTools, setShowBackupTools] =
   useState(false);
   const [fixedConceptName, setFixedConceptName] =
   useState("");
-  const [fixedConceptAmount, setFixedConceptAmount] =
+ const [fixedConceptAmount, setFixedConceptAmount] =
   useState("");
-  const [fixedConceptError, setFixedConceptError] =
+
+const [repeatFixedExpense, setRepeatFixedExpense] =
+  useState(false);
+
+  const [repeatEditingFixedExpense, setRepeatEditingFixedExpense] = useState(false);
+
+const [fixedConceptError, setFixedConceptError] =
   useState("");
 
   const [editingBudgetConceptId, setEditingBudgetConceptId] =
@@ -2285,18 +2291,26 @@ async function saveFixedConcept(
         status: "active",
       });
 
-      await db.monthlyBudgetAmounts.add({
-        id: createId(),
-        conceptId,
-        month: selectedMonth,
-        budgetedAmount: amount,
-        actualAmount: 0,
-      });
+           const monthsToCreate = repeatFixedExpense ? 12 : 1;
+
+      const monthlyRecords = Array.from(
+        { length: monthsToCreate },
+        (_, index) => ({
+          id: createId(),
+          conceptId,
+          month: addMonthsToMonthKey(selectedMonth, index),
+          budgetedAmount: amount,
+          actualAmount: 0,
+        })
+      );
+
+      await db.monthlyBudgetAmounts.bulkAdd(monthlyRecords);
     }
   );
 
-  setFixedConceptName("");
+    setFixedConceptName("");
   setFixedConceptAmount("");
+  setRepeatFixedExpense(false);
   setFixedConceptError("");
   setShowFixedConceptForm(false);
 }
@@ -2441,31 +2455,57 @@ async function saveBudgetAmount(
     return;
   }
 
-  const existingAmount =
-    await db.monthlyBudgetAmounts
-      .where("[conceptId+month]")
-      .equals([concept.id, selectedMonth])
-      .first();
+    if (repeatEditingFixedExpense) {
+    const confirmed = window.confirm(
+      "Se reemplazarán los importes presupuestados " +
+      "de este mes y los próximos 11 meses por " +
+      "el importe indicado. Los gastos reales " +
+      "registrados se conservarán. ¿Continuar?"
+    );
 
-  await db.budgetConcepts.update(
-    concept.id,
-    {
-      name: newName,
+    if (!confirmed) return;
+  }
+
+  await db.transaction(
+    "rw",
+    db.budgetConcepts,
+    db.monthlyBudgetAmounts,
+    async () => {
+      await db.budgetConcepts.update(concept.id, {
+        name: newName,
+      });
+
+      const monthsToUpdate =
+        repeatEditingFixedExpense ? 12 : 1;
+
+      for (let index = 0; index < monthsToUpdate; index++) {
+        const month = addMonthsToMonthKey(
+          selectedMonth,
+          index
+        );
+
+        const existingAmount =
+          await db.monthlyBudgetAmounts
+            .where("[conceptId+month]")
+            .equals([concept.id, month])
+            .first();
+
+        await db.monthlyBudgetAmounts.put({
+          id: existingAmount?.id ?? createId(),
+          conceptId: concept.id,
+          month,
+          budgetedAmount: amount,
+          actualAmount:
+            existingAmount?.actualAmount ?? 0,
+        });
+      }
     }
   );
 
-  await db.monthlyBudgetAmounts.put({
-    id: existingAmount?.id ?? createId(),
-    conceptId: concept.id,
-    month: selectedMonth,
-    budgetedAmount: amount,
-    actualAmount:
-      existingAmount?.actualAmount ?? 0,
-  });
-
-  setEditingBudgetConceptId(null);
+    setEditingBudgetConceptId(null);
   setEditingConceptName("");
   setBudgetAmountInput("");
+  setRepeatEditingFixedExpense(false);
   setBudgetEditError("");
 }
 
@@ -4319,6 +4359,20 @@ if (activeView === "savings") {
             />
           </label>
 
+                    <label className="mt-4 flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-3">
+            <input
+              type="checkbox"
+              checked={repeatFixedExpense}
+              onChange={(event) =>
+                setRepeatFixedExpense(event.target.checked)
+              }
+              className="h-4 w-4 accent-slate-900"
+            />
+            <span className="text-sm font-medium text-slate-700">
+              Repetir durante 12 meses
+            </span>
+          </label>
+
           {fixedConceptError && (
             <p className="mt-2 text-sm font-medium text-red-600">
               {fixedConceptError}
@@ -4386,8 +4440,14 @@ if (activeView === "savings") {
               saveBudgetAmount(event, concept);
             }
           }}
-          className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+          className="mt-3 rounded-2xl border-2 border-blue-500 bg-blue-50/60 p-4 shadow-sm"
         >
+          <div className="mb-4 flex items-center gap-2">
+  <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
+  <span className="text-sm font-bold text-blue-800">
+    Editando: {editingConceptName}
+  </span>
+</div>
           <label className="block">
             <span className="text-sm font-semibold text-slate-700">
               Nombre del gasto
@@ -4424,7 +4484,19 @@ if (activeView === "savings") {
             autoFocus
             className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none"
           />
-
+<label className="mt-4 flex items-center gap-3 rounded-xl border border-blue-100 bg-white px-3 py-3">
+  <input
+    type="checkbox"
+    checked={repeatEditingFixedExpense}
+    onChange={(event) =>
+      setRepeatEditingFixedExpense(event.target.checked)
+    }
+    className="h-4 w-4 accent-blue-600"
+  />
+  <span className="text-sm font-medium text-slate-700">
+    Repetir durante 12 meses
+  </span>
+</label>
           {budgetEditError && (
             <p className="mt-3 text-sm font-medium text-red-600">
               {budgetEditError}
