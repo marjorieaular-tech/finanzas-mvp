@@ -3488,7 +3488,7 @@ window.alert("No se pudo eliminar el ingreso.");
 {/* ==================== RETURN PRINCIPAL DE APP ¿? ==================== */}
 
   return (
-   <main className="min-h-screen bg-slate-50 px-3 pt-4 pb-20 text-slate-900 sm:px-6">
+   <main className="min-h-screen bg-slate-50 px-3 pt-4 pb-32 text-slate-900 sm:px-6">
       <div className="mx-auto max-w-4xl space-y-4">
 
 
@@ -3841,7 +3841,7 @@ if (activeView === "savings") {
   </p>
 
   <div className="flex items-center gap-2">
-    <div className="h-36 w-36 shrink-0">
+    <div className="h-28 w-28 shrink-0">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
@@ -3850,8 +3850,8 @@ if (activeView === "savings") {
             nameKey="name"
             cx="50%"
             cy="50%"
-            innerRadius={38}
-            outerRadius={58}
+            innerRadius={30}
+            outerRadius={46}
             paddingAngle={2}
             strokeWidth={0}
           >
@@ -3974,23 +3974,23 @@ if (activeView === "savings") {
         }
         className="min-w-0 rounded-2xl bg-white p-3 text-left shadow-sm"
       >
-        <div className="flex items-center gap-2">
-          <span
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{ backgroundColor: item.color }}
-          />
-          <span className="text-xs font-medium text-slate-700">
-            {item.name}
-          </span>
-        </div>
+       <div className="flex items-center justify-between gap-1">
+  <span className="flex min-w-0 items-center gap-1.5">
+    <span
+      className="h-2 w-2 shrink-0 rounded-full"
+      style={{ backgroundColor: item.color }}
+    />
+    <span className="text-xs font-medium text-slate-700">
+      {item.name}
+    </span>
+  </span>
 
-        <p className="mt-2 break-words text-base font-bold text-slate-900">
-          {formatMoney(item.value)}
-        </p>
+  <span className="text-sm text-indigo-600">→</span>
+</div>
 
-        <p className="mt-2 text-right text-xs font-medium text-indigo-600">
-          Ver detalle →
-        </p>
+<p className="mt-1 break-words text-base font-bold text-slate-900">
+  {formatMoney(item.value)}
+</p>
       </button>
     ))}
   </div>
