@@ -1581,6 +1581,7 @@ function App() {
   const [activeView, setActiveView] =
     useState<View>("summary");
 
+    const [showSummaryMoreInfo, setShowSummaryMoreInfo] = useState(false);
     
 const [previousView, setPreviousView] =
   useState<View>("summary");
@@ -3996,24 +3997,42 @@ if (activeView === "savings") {
   </div>
 </div>
 
-<div className="mt-3 grid grid-cols-2 gap-2">
-  <div className="rounded-2xl border border-indigo-100 bg-white/70 p-3">
-    <p className="text-sm font-semibold text-slate-800">
-      Ahorro / Inversión
-    </p>
-    <p className="mt-2 text-xs text-slate-500">
-      Próximamente
-    </p>
-  </div>
+<div className="mt-2">
+  <button
+    type="button"
+    onClick={() => setShowSummaryMoreInfo(!showSummaryMoreInfo)}
+    aria-expanded={showSummaryMoreInfo}
+    className="flex w-full items-center justify-center gap-2 rounded-xl py-2 text-xs font-medium text-indigo-600"
+  >
+    {showSummaryMoreInfo ? "− Menos información" : "+ Más información"}
+    <span>{showSummaryMoreInfo ? "⌃" : "⌄"}</span>
+  </button>
 
-  <div className="rounded-2xl border border-indigo-100 bg-white/70 p-3">
-    <p className="text-sm font-semibold text-slate-800">
-      50/50
-    </p>
-    <p className="mt-2 text-xs text-slate-500">
-      Próximamente
-    </p>
-  </div>
+  {showSummaryMoreInfo && (
+    <div className="mt-2 grid grid-cols-2 gap-2">
+      <button
+        type="button"
+        onClick={() => setActiveView("savings")}
+        className="rounded-2xl border border-indigo-100 bg-white p-3 text-left"
+      >
+        <p className="text-sm font-semibold text-slate-800">
+          Ahorro / Inversión
+        </p>
+        <p className="mt-2 text-xs text-indigo-600">
+          Ver detalle →
+        </p>
+      </button>
+
+      <div className="rounded-2xl border border-indigo-100 bg-white/70 p-3">
+        <p className="text-sm font-semibold text-slate-800">
+          50/50
+        </p>
+        <p className="mt-2 text-xs text-slate-500">
+          Próximamente
+        </p>
+      </div>
+    </div>
+  )}
 </div>
 
             </div> {/* Cierra el contenedor principal del Resumen */}
